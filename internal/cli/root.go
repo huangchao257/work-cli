@@ -17,7 +17,11 @@ var (
 var rootCmd = &cobra.Command{
 	Use:   "work",
 	Short: "公司统一 CLI 入口",
-	Long:  "work 是企业级命令行工具。资源管理模块用于安装 AI IDE 资源套装，以及委托安装外部 CLI 工具。",
+	Long: `work 是企业级命令行工具。
+
+资源管理模块用于安装 AI IDE 资源套装（Skills / MCP / Rules），以及委托安装外部 CLI 工具。
+
+运行 work help 查看全部命令，或 work help <command> 查看单个命令说明。`,
 }
 
 func init() {
