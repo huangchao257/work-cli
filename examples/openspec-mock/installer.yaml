@@ -1,0 +1,10 @@
+type: cli
+name: openspec-mock
+version: 1.0.0
+description: OpenSpec CLI 测试替身
+install:
+  run: sh scripts/install.sh
+verify:
+  command: [sh, -c, "test -f \"$HOME/.work/openspec-mock-installed\""]
+uninstall:
+  run: rm -f "$HOME/.work/openspec-mock-installed"

@@ -1,0 +1,12 @@
+type: cli
+name: openspec
+version: 1.0.0
+description: OpenSpec CLI（@fission-ai/openspec）
+install:
+  run: npm install -g @fission-ai/openspec@latest
+verify:
+  command: [openspec, --version]
+uninstall:
+  run: npm uninstall -g @fission-ai/openspec
+update:
+  run: npm install -g @fission-ai/openspec@latest

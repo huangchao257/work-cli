@@ -1,0 +1,12 @@
+name: dev-kit
+version: 1.0.0
+description: 公司通用 AI 技能包（示例）
+resources:
+  skills:
+    - id: code-review
+      source: ./skills/code-review
+  rules:
+    - id: go-style
+      source: ./rules/go-style.md
+      apply: always
+targets: [cursor]

@@ -1,0 +1,8 @@
+/bin/
+/dist/
+*.exe
+*.tar.gz
+*.zip
+.DS_Store
+.idea/
+.vscode/
