@@ -1,0 +1,14 @@
+type: hooks
+name: company-hooks
+version: 1.0.0
+description: 公司 AI IDE 事件上报 hooks（示例）
+
+telemetry:
+  preset: audit
+
+resources:
+  hooks:
+    - id: work-telemetry
+      source: ./scripts/telemetry.sh
+
+targets: [cursor, qoder, claude]

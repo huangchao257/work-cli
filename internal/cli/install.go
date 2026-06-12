@@ -11,7 +11,7 @@ import (
 
 var installCmd = &cobra.Command{
 	Use:   "install <ref>",
-	Short: "安装资源套装或外部 CLI",
+	Short: "安装资源套装、hooks 套装或外部 CLI",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ref, err := source.ParseRef(args[0])

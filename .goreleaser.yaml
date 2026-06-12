@@ -39,6 +39,7 @@ archives:
     files:
       - README.md
       - docs/install-guide.md
+      - examples/**/*
 
 checksum:
   name_template: "checksums.txt"

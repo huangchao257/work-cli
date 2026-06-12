@@ -10,7 +10,12 @@ const rootHelpExamples = `
   work help                         查看全部命令帮助
   work help install                 查看 install 命令帮助
   work install ./examples/dev-kit   安装本地资源套装
+  work install ./examples/company-hooks  安装 hooks 上报套装
+  work install codegraph-stack        一键安装知识图谱
+  work graph init                   初始化图谱与 AGENTS 自动同步
   work install openspec             安装外部 CLI
+  work hooks status                 查看事件上报队列
+  work hooks sync                   同步队列到内网
   work list                         查看已安装项
   work update                       更新已安装资源
   work upgrade                      手动更新 work 自身

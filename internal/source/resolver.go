@@ -2,6 +2,8 @@ package source
 
 import (
 	"fmt"
+
+	"github.com/huangchao257/work-cli/internal/catalog"
 )
 
 func Resolve(ref Ref) (string, error) {
@@ -19,6 +21,9 @@ func Resolve(ref Ref) (string, error) {
 		}
 		return ResolveGit(ref.GitURL, ref.GitRef, cache)
 	case KindRegistry:
+		if path, ok := catalog.Resolve(ref.Name); ok {
+			return path, nil
+		}
 		cfg, err := LoadUserConfig()
 		if err != nil {
 			return "", err

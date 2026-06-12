@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/huangchao257/work-cli/internal/engine"
+	"github.com/huangchao257/work-cli/internal/hooks"
 )
 
 func PrintJSON(w io.Writer, v any) error {
@@ -19,4 +20,8 @@ func PrintInstallJSON(w io.Writer, res engine.Result) error {
 
 func PrintListJSON(w io.Writer, res engine.ListResult) error {
 	return PrintJSON(w, res)
+}
+
+func PrintHooksStatusJSON(w io.Writer, st hooks.Status) error {
+	return PrintJSON(w, st)
 }

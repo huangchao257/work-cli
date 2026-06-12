@@ -7,6 +7,7 @@ import (
 
 	"github.com/huangchao257/work-cli/internal/adapter"
 	"github.com/huangchao257/work-cli/internal/bundle"
+	"github.com/huangchao257/work-cli/internal/graph"
 	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/state"
 )
@@ -140,6 +141,9 @@ func installBundle(ctx context.Context, pkgDir string, opts Options, refRaw stri
 		if err := store.Upsert(rec); err != nil {
 			return Result{}, err
 		}
+		if err := runBundlePostInstall(ctx, manifest, opts); err != nil {
+			warnings = append(warnings, fmt.Sprintf("安装后初始化未完成: %v（可手动执行 work graph init）", err))
+		}
 	}
 
 	return Result{
@@ -178,4 +182,23 @@ func mcpIDs(mcps []bundle.MCPResource) []string {
 		out = append(out, m.ID)
 	}
 	return out
+}
+
+func runBundlePostInstall(ctx context.Context, manifest *bundle.Manifest, opts Options) error {
+	if manifest.PostInstall == nil {
+		return nil
+	}
+	when := manifest.PostInstall.WhenScope
+	if when == "" {
+		when = "project"
+	}
+	if when != "any" && when != opts.Scope {
+		return nil
+	}
+	switch manifest.PostInstall.Action {
+	case "graph_init", "":
+		return graph.RunPostInstall(ctx, opts.Scope, opts.DryRun)
+	default:
+		return fmt.Errorf("未知 post_install.action: %s", manifest.PostInstall.Action)
+	}
 }

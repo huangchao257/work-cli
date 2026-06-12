@@ -75,6 +75,16 @@ install_binary() {
   mkdir -p "$INSTALL_DIR"
   install -m 0755 "$bin" "$INSTALL_DIR/work"
   log "已安装到 $INSTALL_DIR/work"
+
+  local examples_src
+  examples_src="$(find "$tmp" -type d -name examples | head -n 1)"
+  if [ -n "$examples_src" ] && [ -d "$examples_src/codegraph-stack" ]; then
+    local pkg_dir="${HOME}/.work/examples"
+    mkdir -p "$(dirname "$pkg_dir")"
+    rm -rf "$pkg_dir"
+    cp -a "$examples_src" "$pkg_dir"
+    log "内置套装已安装到 $pkg_dir"
+  fi
 }
 
 check_path() {

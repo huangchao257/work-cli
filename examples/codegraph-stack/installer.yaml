@@ -1,0 +1,12 @@
+type: cli
+name: codegraph-stack
+version: 1.0.0
+description: CodeGraph 知识图谱 + AGENTS.md 一键安装（对标 codegraph install + init -i）
+install:
+  run: bash scripts/install.sh
+verify:
+  command: [codegraph, --version]
+uninstall:
+  run: npm uninstall -g @colbymchenry/codegraph
+update:
+  run: bash scripts/install.sh

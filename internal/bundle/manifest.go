@@ -1,13 +1,20 @@
 package bundle
 
 type Manifest struct {
-	Type        string    `yaml:"type"`
-	Name        string    `yaml:"name"`
-	Version     string    `yaml:"version"`
-	Description string    `yaml:"description"`
-	Env         []EnvVar  `yaml:"env"`
-	Resources   Resources `yaml:"resources"`
-	Targets     []string  `yaml:"targets"`
+	Type        string         `yaml:"type"`
+	Name        string         `yaml:"name"`
+	Version     string         `yaml:"version"`
+	Description string         `yaml:"description"`
+	Env         []EnvVar       `yaml:"env"`
+	Resources   Resources      `yaml:"resources"`
+	Targets     []string       `yaml:"targets"`
+	PostInstall *PostInstall   `yaml:"post_install"`
+}
+
+// PostInstall runs after a successful bundle install (optional).
+type PostInstall struct {
+	WhenScope string `yaml:"when_scope"` // project | user | any (default project)
+	Action    string `yaml:"action"`     // graph_init
 }
 
 type EnvVar struct {

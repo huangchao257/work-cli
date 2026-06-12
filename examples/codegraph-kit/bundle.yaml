@@ -1,0 +1,14 @@
+name: codegraph-kit
+version: 1.0.0
+description: CodeGraph 知识图谱 MCP + AGENTS.md 自动生成技能
+post_install:
+  when_scope: project
+  action: graph_init
+resources:
+  skills:
+    - id: codegraph-agents
+      source: ./skills/codegraph-agents
+  mcp:
+    - id: codegraph
+      source: ./mcp/codegraph.json
+targets: [cursor, claude, qoder]

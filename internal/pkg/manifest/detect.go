@@ -11,16 +11,20 @@ type Kind string
 const (
 	KindBundle Kind = "bundle"
 	KindCLI    Kind = "cli"
+	KindHooks  Kind = "hooks"
 )
 
 func DetectKind(dir string) (Kind, error) {
 	if fileExists(filepath.Join(dir, "installer.yaml")) {
 		return KindCLI, nil
 	}
+	if fileExists(filepath.Join(dir, "hooks.yaml")) {
+		return KindHooks, nil
+	}
 	if fileExists(filepath.Join(dir, "bundle.yaml")) {
 		return KindBundle, nil
 	}
-	return "", fmt.Errorf("未找到 installer.yaml 或 bundle.yaml")
+	return "", fmt.Errorf("未找到 installer.yaml、hooks.yaml 或 bundle.yaml")
 }
 
 func fileExists(path string) bool {

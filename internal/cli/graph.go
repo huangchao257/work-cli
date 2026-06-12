@@ -1,0 +1,64 @@
+package cli
+
+import (
+	"context"
+	"os"
+
+	"github.com/spf13/cobra"
+	"github.com/huangchao257/work-cli/internal/graph"
+)
+
+var graphPath string
+
+var graphCmd = &cobra.Command{
+	Use:   "graph",
+	Short: "代码知识图谱与 AGENTS.md（对标 codegraph init）",
+	Long: `管理项目 CodeGraph 知识图谱，并自动维护各目录 AGENTS.md。
+
+一条命令完成索引 + 自动同步配置 + 首次生成，保存代码后 AGENTS.md 会自动更新。`,
+	Example: `  work graph init              初始化图谱并开启无感自动同步
+  work graph sync              手动同步索引与 AGENTS.md
+  work graph status            查看状态
+  work install codegraph-stack   一键安装全部能力`,
+}
+
+var graphInitCmd = &cobra.Command{
+	Use:   "init",
+	Short: "初始化知识图谱并开启 AGENTS.md 自动同步",
+	Long:  "等同 codegraph init -i，并自动配置 Cursor hooks、生成 AGENTS.md。",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return graph.Init(context.Background(), graph.Options{
+			ProjectPath: graphPath,
+			DryRun:      dryRun,
+		})
+	},
+}
+
+var graphSyncCmd = &cobra.Command{
+	Use:   "sync",
+	Short: "同步 CodeGraph 索引并更新 AGENTS.md",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return graph.Sync(context.Background(), graph.Options{
+			ProjectPath: graphPath,
+			DryRun:      dryRun,
+			Quiet:       false,
+		})
+	},
+}
+
+var graphStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "查看图谱与 AGENTS 自动同步状态",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		return graph.PrintStatus(context.Background(), graph.Options{
+			ProjectPath: graphPath,
+			Quiet:       asJSON,
+		}, os.Stdout)
+	},
+}
+
+func init() {
+	graphCmd.PersistentFlags().StringVar(&graphPath, "path", "", "项目根目录（默认当前目录）")
+	graphCmd.AddCommand(graphInitCmd, graphSyncCmd, graphStatusCmd)
+	rootCmd.AddCommand(graphCmd)
+}

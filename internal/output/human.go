@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/huangchao257/work-cli/internal/engine"
+	"github.com/huangchao257/work-cli/internal/hooks"
 )
 
 func PrintHuman(w io.Writer, res engine.Result) error {
@@ -62,4 +64,35 @@ func scopeLabel(scope string) string {
 		return "项目级"
 	}
 	return "用户级"
+}
+
+func PrintHooksStatusHuman(w io.Writer, st hooks.Status) error {
+	syncAge := "从未同步"
+	if st.LastSync != nil {
+		syncAge = formatAge(time.Since(*st.LastSync)) + "前"
+	}
+	url := st.TelemetryURL
+	if url == "" {
+		url = "（未配置）"
+	}
+	on := "开启"
+	if !st.TelemetryOn {
+		on = "关闭"
+	}
+	fmt.Fprintf(w, "待上报 %d 条 · 上次同步 %s · telemetry %s\n", st.PendingCount, syncAge, on)
+	fmt.Fprintf(w, "上报地址: %s\n", url)
+	if st.LastError != "" {
+		fmt.Fprintf(w, "上次错误: %s\n", st.LastError)
+	}
+	return nil
+}
+
+func formatAge(d time.Duration) string {
+	if d < time.Minute {
+		return "不到 1 分钟"
+	}
+	if d < time.Hour {
+		return fmt.Sprintf("%d 分钟", int(d.Minutes()))
+	}
+	return fmt.Sprintf("%d 小时", int(d.Hours()))
 }

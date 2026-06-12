@@ -24,6 +24,12 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 	warnings := []string{}
 
 	switch rec.Kind {
+	case "hooks":
+		if !dryRun {
+			if err := uninstallHooks(ctx, rec, false); err != nil {
+				return Result{}, err
+			}
+		}
 	case "cli":
 		ref, err := source.ParseRef(rec.Ref)
 		if err == nil {

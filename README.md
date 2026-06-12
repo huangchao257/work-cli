@@ -1,8 +1,9 @@
 # work-cli
 
-公司统一 CLI 入口。当前提供**资源管理模块**：
+公司统一 CLI 入口。当前提供：
 
-- 安装 AI IDE 资源套装（Skills / MCP / Rules），支持 Qoder、Cursor、Claude Code
+- **资源管理模块** — 安装 AI IDE 资源套装（Skills / MCP / Rules），支持 Qoder、Cursor、Claude Code
+- **Hooks 模块** — 安装独立 `hooks.yaml` 套装，采集 IDE hooks 事件（本地队列 + 异步上报内网）
 - 委托安装外部 CLI（如 OpenSpec）
 
 ## 安装 work（员工）
@@ -48,6 +49,9 @@ git tag v0.1.0 && git push origin v0.1.0   # 自动触发 GitHub Release
 # 安装示例资源套装（写入 ~/.cursor）
 work install ./examples/dev-kit
 
+# 安装公司 hooks 上报套装（预览）
+work install ./examples/company-hooks --dry-run
+
 # 预览 OpenSpec 安装命令（不实际执行）
 work install ./examples/openspec --dry-run
 
@@ -71,6 +75,8 @@ work install openspec
 | `work upgrade` | 更新 work 自身到最新版 |
 | `work upgrade --check` | 仅检查 work 是否有新版本 |
 | `work version` | 显示版本（默认检查更新） |
+| `work hooks status` | 查看 hooks 事件上报队列状态 |
+| `work hooks sync` | 将本地队列同步到内网 Telemetry |
 
 ### 全局参数
 
@@ -85,7 +91,7 @@ work install openspec
 
 | 格式 | 示例 |
 |------|------|
-| Registry 名称 | `dev-kit`、`openspec` |
+| Registry 名称 | `dev-kit`、`codegraph-stack`、`openspec` |
 | Git | `git:github.com/org/repo@v1.0` |
 | 本地目录 | `./examples/dev-kit` |
 
@@ -103,6 +109,11 @@ cache:
 self_update:
   enabled: true
   check_interval: 2h
+
+telemetry:
+  enabled: true
+  url: https://telemetry.internal.example.com/v1/events
+  events: [shell, mcp, file_read, file_edit, prompt]
 ```
 
 ## OpenSpec
@@ -111,6 +122,34 @@ self_update:
 work install openspec
 # 执行: npm install -g @fission-ai/openspec@latest
 ```
+
+## CodeGraph 知识图谱 + AGENTS.md
+
+对标 [CodeGraph](https://github.com/colbymchenry/codegraph) 体验：**一条命令安装，保存代码后无感自动更新**。
+
+```bash
+# 一键安装（CodeGraph CLI + IDE MCP + 索引 + AGENTS 自动同步）
+work install codegraph-stack
+```
+
+安装完成后无需其他操作；在 Cursor 中保存源码，约 2 秒内自动同步图谱并更新各目录 `AGENTS.md`。
+
+### 简易命令
+
+| 命令 | 说明 |
+|------|------|
+| `work graph init` | 初始化图谱并开启自动同步（等同 `codegraph init -i` + 配置 hooks） |
+| `work graph sync` | 手动同步索引与 AGENTS.md |
+| `work graph status` | 查看状态 |
+
+**说明：**
+
+- 图谱数据在 `.codegraph/`（已 gitignore）
+- `AGENTS.md` 写入各源码目录，告诉 AI「改什么去哪个文件」
+- 安装 `codegraph-kit`（`--scope project`）时会自动执行 `work graph init`
+- 需要 `jq`（生成 AGENTS.md 时）
+
+设计文档：`docs/superpowers/specs/2026-06-11-codegraph-agents-design.md`
 
 ## 自动更新 work 自身
 
@@ -155,7 +194,25 @@ self_update:
 | npm 安装失败 | 确认已安装 Node.js 和 npm |
 | work 更新失败 | 确认网络可访问 GitHub；Windows 下关闭占用 work 的终端后重试 |
 
+## Hooks 模块
+
+```bash
+# 安装 hooks 套装（写入各 IDE hooks 配置 + 上报脚本）
+work install ./examples/company-hooks
+
+# 查看待上报事件数量
+work hooks status
+
+# 手动同步到内网（安装后也会异步自动同步）
+work hooks sync
+```
+
+hooks 事件先写入 `~/.work/telemetry/queue.jsonl`，再 POST 到 `config.yaml` 中的 `telemetry.url`。内网不可达时仅保留本地，不影响 IDE 使用。
+
 ## 文档
 
 - 设计规格：`docs/superpowers/specs/2026-06-11-work-cli-design.md`
+- CodeGraph 套装：`docs/superpowers/specs/2026-06-11-codegraph-agents-design.md`
+- Hooks 规格：`docs/superpowers/specs/2026-06-11-hooks-module-design.md`
 - 实现计划：`docs/superpowers/plans/2026-06-11-resource-module.md`
+- Hooks 计划：`docs/superpowers/plans/2026-06-11-hooks-module.md`

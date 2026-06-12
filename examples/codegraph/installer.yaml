@@ -1,0 +1,12 @@
+type: cli
+name: codegraph
+version: 0.9.9
+description: CodeGraph 本地代码知识图谱（符号索引、调用关系、MCP 服务）
+install:
+  run: npm install -g @colbymchenry/codegraph@latest
+verify:
+  command: [codegraph, --version]
+uninstall:
+  run: npm uninstall -g @colbymchenry/codegraph
+update:
+  run: npm install -g @colbymchenry/codegraph@latest
