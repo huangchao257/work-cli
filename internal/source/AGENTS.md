@@ -16,7 +16,8 @@
 
 - `internal/source/git.go` (go, 7 symbols)
 - `internal/source/local.go` (go, 6 symbols)
-- `internal/source/ref.go` (go, 9 symbols)
+- `internal/source/ref.go` (go, 15 symbols)
+- `internal/source/ref_test.go` (go, 5 symbols)
 - `internal/source/registry.go` (go, 23 symbols)
 - `internal/source/resolver.go` (go, 4 symbols)
 
@@ -24,16 +25,17 @@
 
 - `CacheDir` (exported) — `internal/source/registry.go:58`
 - `LoadUserConfig` (exported) — `internal/source/registry.go:38`
-- `ParseRef` (exported) — `internal/source/ref.go:25`
+- `ParseInstallName` (exported) — `internal/source/ref.go:33`
+- `ParseRef` (exported) — `internal/source/ref.go:70`
 - `Resolve` (exported) — `internal/source/resolver.go:9`
 - `ResolveGit` (exported) — `internal/source/git.go:11`
 - `ResolveLocal` (exported) — `internal/source/local.go:11`
 - `ResolveRegistry` (exported) — `internal/source/registry.go:69`
-- `downloadFile` — `internal/source/registry.go:124`
-- `expandHome` — `internal/source/registry.go:113`
-- `unzip` — `internal/source/registry.go:159`
-- `verifyChecksum` — `internal/source/registry.go:142`
-- `type Ref` (exported) — `internal/source/ref.go:16`
+- `TestParseInstallNameAcceptsRegistryName` (exported) — `internal/source/ref_test.go:19`
+- `TestParseInstallNameRejectsInvalidName` (exported) — `internal/source/ref_test.go:29`
+- `TestParseInstallNameRejectsLocalPath` (exported) — `internal/source/ref_test.go:5`
+- `ValidateInstallName` (exported) — `internal/source/ref.go:54`
+- `type Ref` (exported) — `internal/source/ref.go:20`
 - `type RegistryConfig` (exported) — `internal/source/registry.go:19`
 - `type UserConfig` (exported) — `internal/source/registry.go:23`
 - `type registryResponse` — `internal/source/registry.go:30`

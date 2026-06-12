@@ -46,20 +46,21 @@ git tag v0.1.0 && git push origin v0.1.0   # 自动触发 GitHub Release
 ## 快速开始
 
 ```bash
-# 安装示例资源套装（写入 ~/.cursor）
-work install ./examples/dev-kit
+# 安装内置资源套装（写入 ~/.cursor）
+work install dev-kit
 
 # 安装公司 hooks 上报套装（预览）
-work install ./examples/company-hooks --dry-run
+work install company-hooks --dry-run
 
 # 预览 OpenSpec 安装命令（不实际执行）
-work install ./examples/openspec --dry-run
+work install openspec --dry-run
 
 # 实际安装 OpenSpec（需要 npm）
-work install ./examples/openspec
-
-# 或通过 Registry 名称（需配置 ~/.work/config.yaml）
 work install openspec
+
+# 更新本机已安装的资源
+work update dev-kit
+work update
 ```
 
 ## 常用命令
@@ -67,11 +68,11 @@ work install openspec
 | 命令 | 说明 |
 |------|------|
 | `work help [command]` | 查看命令帮助（中文说明与示例） |
-| `work install <ref>` | 安装 bundle 或外部 CLI |
+| `work install <name>` | 安装已配置的资源（内置或 Registry） |
 | `work list` | 列出已安装项 |
 | `work list --kind cli` | 仅列出 CLI |
 | `work uninstall <name>` | 卸载 |
-| `work update [name]` | 更新已安装资源 |
+| `work update [name]` | 更新本机已安装资源（读取 installed.json） |
 | `work upgrade` | 更新 work 自身到最新版 |
 | `work upgrade --check` | 仅检查 work 是否有新版本 |
 | `work version` | 显示版本（默认检查更新） |
@@ -87,13 +88,16 @@ work install openspec
 | `--dry-run` | false | 预览操作 |
 | `--json` | false | JSON 输出 |
 
-### 安装引用 `<ref>`
+### 安装资源名称 `<name>`
 
-| 格式 | 示例 |
+仅支持公司内部已配置的资源名称，**不支持**本地路径或 git 引用。
+
+| 来源 | 示例 |
 |------|------|
-| Registry 名称 | `dev-kit`、`codegraph-stack`、`openspec` |
-| Git | `git:github.com/org/repo@v1.0` |
-| 本地目录 | `./examples/dev-kit` |
+| 内置资源 | `dev-kit`、`codegraph-stack`、`company-hooks`、`openspec` |
+| 内部 Registry | 需在 `~/.work/config.yaml` 配置 `registry.url` |
+
+内置资源列表随 `work` 发行包附带；安装时使用名称即可，例如 `work install dev-kit`。
 
 ## Registry 配置
 
@@ -198,7 +202,7 @@ self_update:
 
 ```bash
 # 安装 hooks 套装（写入各 IDE hooks 配置 + 上报脚本）
-work install ./examples/company-hooks
+work install company-hooks
 
 # 查看待上报事件数量
 work hooks status

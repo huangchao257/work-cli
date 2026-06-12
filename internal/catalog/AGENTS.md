@@ -15,17 +15,17 @@
 
 ## 本目录文件
 
-- `internal/catalog/builtin.go` (go, 11 symbols)
+- `internal/catalog/builtin.go` (go, 12 symbols)
 - `internal/catalog/builtin_test.go` (go, 5 symbols)
 
 ## 关键符号
 
-- `Names` (exported) — `internal/catalog/builtin.go:48`
-- `Resolve` (exported) — `internal/catalog/builtin.go:21`
+- `Names` (exported) — `internal/catalog/builtin.go:50`
+- `Resolve` (exported) — `internal/catalog/builtin.go:23`
 - `TestResolveCodegraphStack` (exported) — `internal/catalog/builtin_test.go:9`
-- `examplesRoot` — `internal/catalog/builtin.go:56`
-- `fileExists` — `internal/catalog/builtin.go:109`
-- `findExamplesUp` — `internal/catalog/builtin.go:90`
+- `examplesRoot` — `internal/catalog/builtin.go:59`
+- `fileExists` — `internal/catalog/builtin.go:112`
+- `findExamplesUp` — `internal/catalog/builtin.go:93`
 
 ## 相关目录
 

@@ -19,8 +19,8 @@ func TestE2EBundleInstallListUninstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bundlePath := filepath.Join(wd, "..", "..", "examples", "dev-kit")
-	ref, err := source.ParseRef(bundlePath)
+	t.Setenv("WORK_EXAMPLES_DIR", filepath.Join(wd, "..", "..", "examples"))
+	ref, err := source.ParseInstallName("dev-kit")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,8 +59,8 @@ func TestE2ECLIMockInstall(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkgPath := filepath.Join(wd, "..", "..", "examples", "openspec-mock")
-	ref, err := source.ParseRef(pkgPath)
+	t.Setenv("WORK_EXAMPLES_DIR", filepath.Join(wd, "..", "..", "examples"))
+	ref, err := source.ParseInstallName("openspec-mock")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +91,8 @@ func TestE2EOpenSpecDryRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pkgPath := filepath.Join(wd, "..", "..", "examples", "openspec")
-	ref, err := source.ParseRef(pkgPath)
+	t.Setenv("WORK_EXAMPLES_DIR", filepath.Join(wd, "..", "..", "examples"))
+	ref, err := source.ParseInstallName("openspec")
 	if err != nil {
 		t.Fatal(err)
 	}

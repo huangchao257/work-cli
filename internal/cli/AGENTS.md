@@ -41,11 +41,11 @@ CLI 命令层：用户可见子命令、全局参数与帮助
 - `init` — `internal/cli/autoupdate.go:16`
 - `init` — `internal/cli/list.go:24`
 - `init` — `internal/cli/uninstall.go:27`
-- `init` — `internal/cli/update.go:35`
 - `init` — `internal/cli/upgrade.go:79`
 - `init` — `internal/cli/version.go:42`
 - `init` — `internal/cli/hooks.go:97`
-- `init` — `internal/cli/install.go:37`
+- `init` — `internal/cli/root.go:29`
+- `init` — `internal/cli/graph.go:60`
 - `type exitError` — `internal/cli/errors.go:5`
 
 ## 相关目录

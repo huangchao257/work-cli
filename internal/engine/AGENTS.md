@@ -24,7 +24,8 @@
 - `internal/engine/options.go` (go, 3 symbols)
 - `internal/engine/result.go` (go, 4 symbols)
 - `internal/engine/uninstall.go` (go, 10 symbols)
-- `internal/engine/update.go` (go, 9 symbols)
+- `internal/engine/update.go` (go, 10 symbols)
+- `internal/engine/update_test.go` (go, 7 symbols)
 
 ## 关键符号
 
@@ -33,10 +34,10 @@
 - `TestE2EBundleInstallListUninstall` (exported) — `internal/engine/e2e_test.go:12`
 - `TestE2ECLIMockInstall` (exported) — `internal/engine/e2e_test.go:55`
 - `TestE2EOpenSpecDryRun` (exported) — `internal/engine/e2e_test.go:89`
+- `TestUpdateUsesInstalledRecordName` (exported) — `internal/engine/update_test.go:12`
 - `Uninstall` (exported) — `internal/engine/uninstall.go:14`
-- `Update` (exported) — `internal/engine/update.go:12`
+- `Update` (exported) — `internal/engine/update.go:13`
 - `findRecord` — `internal/engine/uninstall.go:88`
-- `findRecordError` — `internal/engine/update.go:99`
 - `hookIDs` — `internal/engine/hooks.go:258`
 - `ids` — `internal/engine/bundle.go:163`
 - `installBundle` — `internal/engine/bundle.go:15`

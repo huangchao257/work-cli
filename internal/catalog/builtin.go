@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -15,6 +16,7 @@ var builtins = map[string]string{
 	"dev-kit":         "dev-kit",
 	"company-hooks":   "company-hooks",
 	"openspec":        "openspec",
+	"openspec-mock":   "openspec-mock",
 }
 
 // Resolve returns the local directory for a built-in package name.
@@ -50,6 +52,7 @@ func Names() []string {
 	for n := range builtins {
 		out = append(out, n)
 	}
+	sort.Strings(out)
 	return out
 }
 
