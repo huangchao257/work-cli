@@ -19,7 +19,8 @@
 |------|------|
 | 图谱实现 | 封装上游 `codegraph` CLI（npm 全局安装） |
 | 集成方式 | `examples/codegraph/installer.yaml` + `examples/codegraph-kit/bundle.yaml` |
-| AGENTS.md 范围 | 仅含源码且图谱 `nodeCount > 0` 的目录 |
+| AGENTS.md 范围 | 仅 CodeGraph 已索引的**代码目录**（`nodeCount > 0` 且语言为 go/ts/js/py 等，排除 yaml/md/docs/examples） |
+| 复杂度过滤 | 简单代码链路不生成：单文件且符号少于 12 个（`AGENTS_MIN_SYMBOLS`）；`cmd/*` 入口始终保留 |
 | AGENTS.md 内容 | AI 操作指引（改什么功能去哪个目录/文件） |
 | 写入方式 | 直接写入各目录，支持 `--dry-run` 预览 |
 | 自动更新 | `setup-auto-sync.sh` 写 Cursor hook，防抖 2s 后 `sync` + 重生 AGENTS.md |
@@ -44,7 +45,20 @@ codegraph query --kind function|struct   → 提取关键符号
 各目录 AGENTS.md                          → 任务指引表 + 关键符号 + 相关目录
 ```
 
-## 4. AGENTS.md 模板
+## 4. 目录筛选规则
+
+生成前从 `codegraph files --json` 读取索引，**只为代码目录**写入或更新 `AGENTS.md`：
+
+1. **代码目录** — 目录内至少有一个文件满足：`nodeCount > 0` 且 `language` 属于代码语言（go、typescript、javascript、python、rust 等）；排除 docs、examples、测试目录与构建产物。
+2. **复杂度达标** — 满足以下任一条件：
+   - 目录内代码符号总数 ≥ `AGENTS_MIN_SYMBOLS`（默认 12）
+   - 目录内代码文件数 ≥ `AGENTS_MIN_CODE_FILES`（默认 2）
+   - 路径为 `cmd` / `cmd/*`（程序入口始终生成）
+3. **清理** — 同步时删除不再符合条件的旧 `AGENTS.md`（仅带自动生成标记的文件）。
+
+示例：`internal/pkg/copyutil`（单文件、8 符号）不生成；`internal/catalog`（2 文件、17 符号）生成。
+
+## 5. AGENTS.md 模板
 
 每个有意义目录生成：
 
@@ -55,7 +69,7 @@ codegraph query --kind function|struct   → 提取关键符号
 
 页眉标注自动生成与更新命令。
 
-## 5. 自动同步机制
+## 6. 自动同步机制
 
 ```
 保存源码 (Cursor afterFileEdit)
@@ -75,12 +89,12 @@ codegraph sync  →  generate-agents.sh --skip-sync
 
 备选：`watch-agents.sh` 用 inotify/fswatch 监听文件系统，不依赖 IDE hook。
 
-## 6. 非目标
+## 7. 非目标
 
 - 自研多语言 AST 解析器
 - 将 AGENTS.md 默认加入 `.gitignore`（团队自行决定是否提交）
 
-## 7. 使用流程
+## 8. 使用流程
 
 ```bash
 # 一键（推荐，对标 codegraph install + init -i）

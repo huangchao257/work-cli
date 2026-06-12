@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
-# 基于 CodeGraph 知识图谱，为项目各「有意义」目录生成 AGENTS.md
+# 基于 CodeGraph 知识图谱，为项目各「有意义」代码目录生成 AGENTS.md
 set -euo pipefail
 
 PROJECT_ROOT="."
 DRY_RUN=false
 QUIET=false
 SKIP_SYNC=false
+
+# 复杂度阈值（可用环境变量覆盖）
+MIN_SYMBOLS="${AGENTS_MIN_SYMBOLS:-12}"
+MIN_CODE_FILES="${AGENTS_MIN_CODE_FILES:-2}"
+
+# CodeGraph 索引中的「代码」语言（与 nodeCount>0 联合判定，排除 yaml/md 等配置与文档）
+CODE_LANGUAGES_RE='^(go|typescript|javascript|tsx|jsx|python|rust|java|kotlin|swift|c|cpp|csharp|ruby|php|scala)$'
 
 usage() {
   cat <<'EOF'
@@ -17,6 +24,10 @@ usage() {
   --quiet            静默模式（供自动同步使用）
   --skip-sync        跳过 codegraph sync（调用方已同步时使用）
   -h, --help         显示帮助
+
+环境变量:
+  AGENTS_MIN_SYMBOLS     目录最少符号数（默认 12，与 MIN_CODE_FILES 满足其一即可）
+  AGENTS_MIN_CODE_FILES  目录最少代码文件数（默认 2）
 
 依赖: codegraph, jq
 EOF
@@ -97,17 +108,79 @@ FUNCS_JSON="$(codegraph query "" --kind function --limit 3000 --json 2>/dev/null
 STRUCTS_JSON="$(codegraph query "" --kind struct --limit 1000 --json 2>/dev/null || echo '[]')"
 CLASSES_JSON="$(codegraph query "" --kind class --limit 1000 --json 2>/dev/null || echo '[]')"
 
-# 跳过这些目录前缀
+# 跳过构建产物、依赖与非源码目录
 should_skip_dir() {
   local d="$1"
   case "$d" in
     .git/*|.git|node_modules/*|node_modules|vendor/*|vendor|dist/*|dist|\
 build/*|build|target/*|target|.codegraph/*|.codegraph|\
-.goreleaser/*|.github/*)
+.goreleaser/*|.github/*|docs|docs/*|examples|examples/*)
       return 0
       ;;
   esac
+  # 纯测试目录
+  if [[ "$d" == *"_test" || "$d" == *"/test" || "$d" == "test" || "$d" == "tests" ]]; then
+    return 0
+  fi
   return 1
+}
+
+# 目录是否含 CodeGraph 已索引的代码文件（nodeCount>0 且为代码语言）
+dir_has_code_files() {
+  local dir="$1"
+  echo "$FILES_JSON" | jq -e --arg d "$dir" --arg re "$CODE_LANGUAGES_RE" '
+    any(
+      .[];
+      (.nodeCount // 0) > 0
+      and (.language | test($re))
+      and (
+        if $d == "." then (.path | contains("/") | not)
+        else (.path | startswith($d + "/"))
+        end
+      )
+    )
+  ' >/dev/null 2>&1
+}
+
+# 统计目录内代码文件数与符号总数（仅 CodeGraph 代码语言）
+dir_code_stats() {
+  local dir="$1"
+  echo "$FILES_JSON" | jq -r --arg d "$dir" --arg re "$CODE_LANGUAGES_RE" '
+    [.[] |
+      select((.nodeCount // 0) > 0 and (.language | test($re))) |
+      select(
+        if $d == "." then (.path | contains("/") | not)
+        else (.path | startswith($d + "/"))
+        end
+      )
+    ] | {files: length, symbols: (map(.nodeCount) | add // 0)}
+  '
+}
+
+# 简单代码链路：单文件且符号少、无多文件协作的叶子目录不生成 AGENTS.md
+is_complex_enough() {
+  local dir="$1"
+  # 程序入口始终保留
+  case "$dir" in
+    cmd|cmd/*) return 0 ;;
+  esac
+
+  local stats files symbols
+  stats="$(dir_code_stats "$dir")"
+  files="$(echo "$stats" | jq -r '.files')"
+  symbols="$(echo "$stats" | jq -r '.symbols')"
+
+  [[ "$files" -eq 0 ]] && return 1
+  [[ "$symbols" -ge "$MIN_SYMBOLS" ]] && return 0
+  [[ "$files" -ge "$MIN_CODE_FILES" ]] && return 0
+  return 1
+}
+
+should_write_agents() {
+  local dir="$1"
+  should_skip_dir "$dir" && return 1
+  dir_has_code_files "$dir" || return 1
+  is_complex_enough "$dir"
 }
 
 # 目录用途（路径启发式，可按项目扩展）
@@ -200,37 +273,67 @@ task_hints() {
   esac
 }
 
-# 收集有意义目录（目录内符号总数 > 0）
-mapfile -t MEANINGFUL_DIRS < <(
-  echo "$FILES_JSON" | jq -r '
-    [.[] | select(.nodeCount > 0) | .path | rtrimstr("/") | split("/") | .[0:-1] | join("/")]
-    | map(select(length > 0))
+# 从 CodeGraph 收集含代码符号的目录（仅代码语言 + nodeCount>0）
+mapfile -t CANDIDATE_DIRS < <(
+  echo "$FILES_JSON" | jq -r --arg re "$CODE_LANGUAGES_RE" '
+    [.[] |
+      select((.nodeCount // 0) > 0 and (.language | test($re))) |
+      .path | rtrimstr("/") | split("/") | .[0:-1] | join("/")
+    ]
     | unique
     | .[]
   ' 2>/dev/null || true
 )
 
-# 根目录：若根下有带符号文件也纳入
-ROOT_SYMBOLS="$(echo "$FILES_JSON" | jq '[.[] | select(.nodeCount > 0 and (.path | contains("/") | not))] | length')"
 DIRS_TO_WRITE=()
-if [[ "$ROOT_SYMBOLS" -gt 0 ]]; then
+# 根目录：根下有已索引代码文件时纳入
+if dir_has_code_files "." && is_complex_enough "."; then
   DIRS_TO_WRITE+=(".")
 fi
 
-for d in "${MEANINGFUL_DIRS[@]:-}"; do
-  if should_skip_dir "$d"; then
-    continue
+for d in "${CANDIDATE_DIRS[@]:-}"; do
+  if should_write_agents "$d"; then
+    DIRS_TO_WRITE+=("$d")
   fi
-  DIRS_TO_WRITE+=("$d")
 done
 
 # 去重排序
 mapfile -t DIRS_TO_WRITE < <(printf '%s\n' "${DIRS_TO_WRITE[@]}" | sort -u)
 
 if [[ ${#DIRS_TO_WRITE[@]} -eq 0 ]]; then
-  echo "未找到含源码符号的目录。请先确认 codegraph 索引成功。"
+  echo "未找到符合条件的代码目录（需 CodeGraph 已索引且复杂度达标）。请先确认 codegraph 索引成功。"
   exit 0
 fi
+
+# 清理不再符合条件的旧 AGENTS.md（仅删除本脚本生成的文件）
+cleanup_stale_agents() {
+  local keep_file="$1"
+  local agents_path abs_dir rel_dir
+  while IFS= read -r -d '' agents_path; do
+    if ! grep -q '由 CodeGraph 知识图谱自动生成' "$agents_path" 2>/dev/null; then
+      continue
+    fi
+    abs_dir="$(dirname "$agents_path")"
+    if [[ "$abs_dir" == "$PROJECT_ROOT" ]]; then
+      rel_dir="."
+    else
+      rel_dir="${abs_dir#"$PROJECT_ROOT"/}"
+    fi
+    if ! grep -Fxq "$rel_dir" "$keep_file"; then
+      if $DRY_RUN; then
+        log "[dry-run] 将删除: $agents_path"
+      else
+        rm -f "$agents_path"
+        log "已删除（不再符合条件）: $agents_path"
+      fi
+    fi
+  done < <(find "$PROJECT_ROOT" -name 'AGENTS.md' -not -path '*/.git/*' -print0 2>/dev/null)
+}
+
+KEEP_LIST="$(mktemp)"
+printf '%s\n' "${DIRS_TO_WRITE[@]}" >"$KEEP_LIST"
+cleanup_stale_agents "$KEEP_LIST"
+rm -f "$KEEP_LIST"
 
 symbols_for_dir() {
   local dir="$1"
@@ -265,11 +368,13 @@ symbols_for_dir() {
 
 files_in_dir() {
   local dir="$1"
-  echo "$FILES_JSON" | jq -r --arg d "$dir" '
+  echo "$FILES_JSON" | jq -r --arg d "$dir" --arg re "$CODE_LANGUAGES_RE" '
     if $d == "." then
-      [.[] | select(.nodeCount > 0 and (.path | contains("/") | not)) | "- `\(.path)` (\(.language), \(.nodeCount) symbols)"]
+      [.[] | select((.nodeCount // 0) > 0 and (.language | test($re)) and (.path | contains("/") | not)) |
+        "- `\(.path)` (\(.language), \(.nodeCount) symbols)"]
     else
-      [.[] | select(.nodeCount > 0 and (.path | startswith($d + "/"))) | "- `\(.path)` (\(.language), \(.nodeCount) symbols)"]
+      [.[] | select((.nodeCount // 0) > 0 and (.language | test($re)) and (.path | startswith($d + "/"))) |
+        "- `\(.path)` (\(.language), \(.nodeCount) symbols)"]
     end | .[:15][] // empty
   '
 }
@@ -281,11 +386,12 @@ related_dirs() {
     [[ "$parent" == "." || -z "$parent" ]] && parent="."
     echo "- 父目录: \`$parent/\`"
   fi
-  echo "$FILES_JSON" | jq -r --arg d "$dir" '
+  echo "$FILES_JSON" | jq -r --arg d "$dir" --arg re "$CODE_LANGUAGES_RE" '
     if $d == "." then
-      [.[] | select(.nodeCount > 0 and (.path | contains("/"))) | .path | split("/")[0]] | unique | .[:8][]
+      [.[] | select((.nodeCount // 0) > 0 and (.language | test($re)) and (.path | contains("/"))) |
+        .path | split("/")[0]] | unique | .[:8][]
     else
-      [.[] | select(.nodeCount > 0 and (.path | startswith($d + "/"))) | .path |
+      [.[] | select((.nodeCount // 0) > 0 and (.language | test($re)) and (.path | startswith($d + "/"))) | .path |
         sub("^" + $d + "/"; "") | if contains("/") then split("/")[0] else empty end
       ] | unique | .[:8][]
     end // empty | "- 子目录: `\(.)/`"

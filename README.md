@@ -149,7 +149,8 @@ work install codegraph-stack
 **说明：**
 
 - 图谱数据在 `.codegraph/`（已 gitignore）
-- `AGENTS.md` 写入各源码目录，告诉 AI「改什么去哪个文件」
+- `AGENTS.md` 仅写入 CodeGraph 已索引的**代码目录**（排除 docs/examples 与简单工具包）；告诉 AI「改什么去哪个文件」
+- 简单链路（如单文件且符号少于 12 个）不生成；可通过 `AGENTS_MIN_SYMBOLS`、`AGENTS_MIN_CODE_FILES` 调整阈值
 - 安装 `codegraph-kit`（`--scope project`）时会自动执行 `work graph init`
 - 需要 `jq`（生成 AGENTS.md 时）
 
