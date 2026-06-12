@@ -19,7 +19,8 @@
 | 模块 | 说明 | 状态 |
 |------|------|------|
 | **资源管理模块** | 资源套装（Skills/MCP/Rules）+ 外部 CLI 委托安装 | MVP（本文档范围） |
-| *（后续模块）* | 待规划 | — |
+| **Hooks 模块** | IDE 事件采集上报；后续：执行审计 → 触发自动化 | 阶段一已实现（见 [Hooks 规格](./2026-06-11-hooks-module-design.md)） |
+| **CodeGraph 模块** | 代码知识图谱索引与 Agent 文档同步 | 已实现（见 [CodeGraph 规格](./2026-06-11-codegraph-agents-design.md)） |
 
 ### 1.2 已确认决策
 

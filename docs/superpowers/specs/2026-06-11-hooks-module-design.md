@@ -1,16 +1,26 @@
 # work-cli Hooks 模块设计规格书
 
-> 状态：已实现（2026-06-11）  
+> 状态：已实现（2026-06-11）— **阶段一：观察型上报**  
 > 范围：**Hooks 模块** — AI IDE hooks 事件采集上报（本地 + 异步内网）与 hooks 套装自动安装
 
 ## 1. 概述
+
+### 1.0 演进路线
+
+| 阶段 | 能力 | 状态 |
+|------|------|------|
+| **阶段一** | **观察型上报** — 采集 IDE 事件，本地落盘 + 异步上报内网 Telemetry | **当前（MVP）** |
+| **阶段二** | **执行审计** — 基于上报数据或策略引擎，对 Shell/MCP/文件操作等进行合规审计与告警 | 规划中 |
+| **阶段三** | **触发执行自动化** — hook 在满足条件时触发公司自动化流程（审批、阻断、回调 Webhook、联动 CI 等） | 规划中 |
+
+阶段一 deliberately 采用「透传 stdin/stdout、exit 0」的观察型设计，为后续审计与自动化预留同一套 `hooks.yaml` 安装与事件模型，但**不在 MVP 中改变 IDE 执行行为**。
 
 ### 1.1 目标
 
 在 `work` 统一 CLI 上新增 **Hooks 模块**，帮助公司全体员工：
 
 1. **自动安装 hooks 能力** — 通过独立 `hooks.yaml` 套装，一键写入 Cursor、Qoder、Claude Code 的 hooks 配置与脚本
-2. **采集并上报 AI IDE 事件** — IDE hook 触发时经 `work hooks report` 落盘本地队列，再异步上报内网 Telemetry 服务；内网不可达时仅保留本地，不阻断 IDE 使用
+2. **（阶段一）采集并上报 AI IDE 事件** — IDE hook 触发时经 `work hooks report` 落盘本地队列，再异步上报内网 Telemetry 服务；内网不可达时仅保留本地，不阻断 IDE 使用
 
 与现有**资源管理模块**（bundle / cli）并列，共用 `work install` / `list` / `uninstall` / `update` 入口。
 
@@ -26,9 +36,11 @@
 | 安装范围 | `--scope user\|project`，默认 `user` |
 | 认证 | MVP 不做；Telemetry API 预留 Header 扩展点 |
 
-### 1.3 非目标（MVP）
+### 1.3 非目标（阶段一 / MVP）
 
-- 实时阻断/审批类 hooks（仅观察型上报，透传 stdin/stdout）
+- **执行审计**（服务端策略分析、合规告警）— 阶段二
+- **触发执行自动化**（阻断、审批、Webhook、联动外部系统）— 阶段三
+- 实时阻断/审批类 hooks（阶段一仅观察型上报，透传 stdin/stdout）
 - 内网 Telemetry 服务端实现（仅定义客户端 API 契约）
 - HTTP hook 类型 / 本地常驻 daemon
 - 事件全文存储（默认脱敏 prompt、文件内容等敏感字段）
@@ -578,12 +590,38 @@ Registry 包类型增加 `hooks`：
 
 ---
 
-## 16. 后续扩展（P1+）
+## 16. 后续扩展
+
+### 16.1 阶段二：执行审计
+
+在阶段一上报数据基础上，于 Telemetry 服务端或本地策略引擎实现：
+
+| 能力 | 说明 |
+|------|------|
+| 合规规则引擎 | 对 `shell` / `mcp` / `file_edit` 等事件匹配公司策略（危险命令、敏感路径、外发数据等） |
+| 审计留痕与检索 | 按用户、项目、时间、事件类型查询；与现有 `EventRecord` 模型对齐 |
+| 告警与报表 | 违规/高风险操作通知安全或直属负责人 |
+
+客户端可能扩展：`work hooks audit`（本地策略预览）、manifest 中 `telemetry.audit_rules` 引用等；**不要求** hook 脚本阻断 IDE（审计以旁路分析为主）。
+
+### 16.2 阶段三：触发执行自动化
+
+hook 从「只观察」升级为「可干预、可联动」：
+
+| 能力 | 说明 |
+|------|------|
+| 阻断型 hooks | 危险命令 deny、敏感文件写保护；非零退出码或修改 payload 阻止 IDE 继续 |
+| 审批流 | 高风险操作挂起，等待内网审批 API 放行后再透传 |
+| 自动化触发 | Webhook / 内部自动化平台（如触发 CI、工单、通知机器人） |
+| `failClosed` 策略 | 网络或策略服务不可达时的默认行为（允许 / 拒绝）可配置 |
+
+实现上可复用阶段一的 `telemetry.sh` 与事件映射，新增 `hooks.yaml` 资源类型（如 `audit-guard.sh`）及 `work hooks evaluate` 等命令；需单独评审对 IDE 体验的影响。
+
+### 16.3 其他（P1+）
 
 | 功能 | 说明 |
 |------|------|
-| 阻断型 hooks | 公司策略：危险命令 deny |
 | `work doctor --hooks` | 检查 hooks 是否加载、work 是否在 PATH |
 | 项目级默认套装 | IT 推送 + `work install` |
-| 对接 Vault | 上报 API 自动带短期 token |
+| 对接 Vault | 上报 / 审计 / 自动化 API 自动带短期 token |
 | 更多 IDE | VS Code Copilot 等 |

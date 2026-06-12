@@ -3,7 +3,7 @@
 公司统一 CLI 入口。当前提供：
 
 - **资源管理模块** — 安装 AI IDE 资源套装（Skills / MCP / Rules），支持 Qoder、Cursor、Claude Code
-- **Hooks 模块** — 安装独立 `hooks.yaml` 套装，采集 IDE hooks 事件（本地队列 + 异步上报内网）
+- **Hooks 模块** — 安装独立 `hooks.yaml` 套装，**当前**采集 IDE hooks 事件并上报（本地队列 + 异步内网）；**后续**执行审计、触发自动化
 - 委托安装外部 CLI（如 OpenSpec）
 
 ## 安装 work（员工）
@@ -200,6 +200,9 @@ self_update:
 | work 更新失败 | 确认网络可访问 GitHub；Windows 下关闭占用 work 的终端后重试 |
 
 ## Hooks 模块
+
+**当前（阶段一）**：仅支持**观察型上报** — 采集 IDE 事件，不阻断、不修改 IDE 行为。  
+**后续规划**：阶段二**执行审计**（合规策略与告警）；阶段三**触发执行自动化**（阻断、审批、Webhook 等）。
 
 ```bash
 # 安装 hooks 套装（写入各 IDE hooks 配置 + 上报脚本）
