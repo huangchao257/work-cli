@@ -78,6 +78,13 @@ work update
 | `work version` | 显示版本（默认检查更新） |
 | `work hooks status` | 查看 hooks 事件上报队列状态 |
 | `work hooks sync` | 将本地队列同步到内网 Telemetry |
+| `work doctor` | 体检本机运行环境（IDE/PATH/config/状态/MCP/codegraph） |
+| `work init <type> <name>` | 生成套装骨架（type: bundle/cli/hooks） |
+| `work config get/set/list/path` | 读写 `~/.work/config.yaml` |
+| `work pack <dir>` | 将套装目录打包为可分发归档 + 校验和 |
+| `work publish <archive>` | 上传归档至内部 Registry |
+| `work search [query]` | 列出可安装资源（内置 + `--remote` Registry） |
+| `work hooks audit` | 按策略对本地 hooks 事件做合规审计（阶段二） |
 
 ### 全局参数
 
@@ -219,6 +226,7 @@ hooks 事件先写入 `~/.work/telemetry/queue.jsonl`，再 POST 到 `config.yam
 
 ## 文档
 
+- 设计文档（按模块）：`docs/design/`（[总览](docs/design/overview.md) + [扩展能力](docs/design/extensions.md)）
 - 设计规格：`docs/superpowers/specs/2026-06-11-work-cli-design.md`
 - CodeGraph 套装：`docs/superpowers/specs/2026-06-11-codegraph-agents-design.md`
 - Hooks 规格：`docs/superpowers/specs/2026-06-11-hooks-module-design.md`
