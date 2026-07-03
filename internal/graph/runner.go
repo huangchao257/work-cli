@@ -29,6 +29,10 @@ type Status struct {
 	SkillInstalled bool            `json:"skillInstalled"`
 }
 
+type ioWriter interface {
+	Write([]byte) (int, error)
+}
+
 func Init(ctx context.Context, opts Options) error {
 	root, err := resolveRoot(opts.ProjectPath)
 	if err != nil {
@@ -89,77 +93,6 @@ func Sync(ctx context.Context, opts Options) error {
 	}
 	args := []string{"--quiet", "--skip-sync", "-p", root}
 	return runBash(ctx, root, gen, args...)
-}
-
-func PrintStatus(ctx context.Context, opts Options, w ioWriter) error {
-	root, err := resolveRoot(opts.ProjectPath)
-	if err != nil {
-		return fmt.Errorf("解析项目根目录失败: %w", err)
-	}
-	st, err := CollectStatus(ctx, root)
-	if err != nil {
-		return fmt.Errorf("收集 CodeGraph 状态失败: %w", err)
-	}
-	if opts.Quiet {
-		enc := json.NewEncoder(w)
-		enc.SetIndent("", "  ")
-		return enc.Encode(st)
-	}
-	fmt.Fprintf(w, "项目: %s\n", st.ProjectPath)
-	if len(st.Codegraph) > 0 {
-		var m map[string]any
-		if json.Unmarshal(st.Codegraph, &m) == nil {
-			if init, _ := m["initialized"].(bool); init {
-				fmt.Fprintf(w, "CodeGraph: 已索引（%v 文件, %v 符号）\n", m["fileCount"], m["nodeCount"])
-			} else {
-				fmt.Fprintln(w, "CodeGraph: 未初始化（运行 work graph init）")
-			}
-		}
-	} else if _, err := exec.LookPath("codegraph"); err != nil {
-		fmt.Fprintln(w, "CodeGraph: 未安装（运行 work install codegraph-stack）")
-	} else {
-		fmt.Fprintln(w, "CodeGraph: 无法读取状态")
-	}
-	if st.SkillInstalled {
-		fmt.Fprintln(w, "技能包: codegraph-agents 已安装")
-	} else {
-		fmt.Fprintln(w, "技能包: 未安装（运行 work install codegraph-kit --scope project）")
-	}
-	if st.AgentsHook {
-		fmt.Fprintln(w, "AGENTS 自动同步: 已开启（保存代码后约 2s 更新）")
-	} else {
-		fmt.Fprintln(w, "AGENTS 自动同步: 未开启（运行 work graph init）")
-	}
-	if st.AgentsLog != "" {
-		fmt.Fprintf(w, "最近同步日志: %s\n", st.AgentsLog)
-	}
-	return nil
-}
-
-func CollectStatus(ctx context.Context, root string) (Status, error) {
-	st := Status{ProjectPath: root}
-	st.SkillInstalled = skillInstalled(root)
-	st.AgentsHook = hookConfigured(root)
-	logPath := filepath.Join(root, ".codegraph", "agents-sync", "sync.log")
-	if data, err := os.ReadFile(logPath); err == nil && len(data) > 0 {
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 0 {
-			st.AgentsLog = lines[len(lines)-1]
-		}
-	}
-	if _, err := exec.LookPath("codegraph"); err != nil {
-		return st, nil
-	}
-	cmd := exec.CommandContext(ctx, "codegraph", "status", "--json", "-p", root)
-	out, err := cmd.Output()
-	if err == nil {
-		st.Codegraph = json.RawMessage(out)
-	}
-	return st, nil
-}
-
-type ioWriter interface {
-	Write([]byte) (int, error)
 }
 
 func resolveRoot(path string) (string, error) {
@@ -242,71 +175,6 @@ func findScript(projectRoot, name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("未找到脚本 %s", name)
-}
-
-func skillInstalled(projectRoot string) bool {
-	_, err := findScript(projectRoot, "generate-agents.sh")
-	return err == nil
-}
-
-func hookConfigured(projectRoot string) bool {
-	data, err := os.ReadFile(filepath.Join(projectRoot, ".cursor", "hooks.json"))
-	if err != nil {
-		return false
-	}
-	return strings.Contains(string(data), "codegraph-agents") || strings.Contains(string(data), "on-file-edit.sh")
-}
-
-type cursorHooksFile struct {
-	Version int                          `json:"version"`
-	Hooks   map[string][]cursorHookEntry `json:"hooks"`
-}
-
-type cursorHookEntry struct {
-	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"`
-}
-
-func setupCursorHook(projectRoot, hookScript string) error {
-	hooksPath := filepath.Join(projectRoot, ".cursor", "hooks.json")
-	marker := "codegraph-agents/on-file-edit.sh"
-
-	var cfg cursorHooksFile
-	if data, err := os.ReadFile(hooksPath); err == nil {
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			return fmt.Errorf("解析 hooks.json 失败: %w", err)
-		}
-	} else {
-		cfg = cursorHooksFile{Version: 1, Hooks: map[string][]cursorHookEntry{}}
-	}
-	if cfg.Hooks == nil {
-		cfg.Hooks = map[string][]cursorHookEntry{}
-	}
-	if cfg.Version == 0 {
-		cfg.Version = 1
-	}
-
-	filtered := make([]cursorHookEntry, 0)
-	for _, e := range cfg.Hooks["afterFileEdit"] {
-		if strings.Contains(e.Command, marker) || strings.Contains(e.Command, "on-file-edit.sh") {
-			continue
-		}
-		filtered = append(filtered, e)
-	}
-	filtered = append(filtered, cursorHookEntry{Command: hookScript, Timeout: 15})
-	cfg.Hooks["afterFileEdit"] = filtered
-
-	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
-		return fmt.Errorf("创建 hooks 目录失败: %w", err)
-	}
-	out, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		return fmt.Errorf("编码 hooks.json 失败: %w", err)
-	}
-	if err := os.WriteFile(hooksPath, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("写入 hooks.json 失败: %w", err)
-	}
-	return nil
 }
 
 func runBash(ctx context.Context, dir, script string, args ...string) error {
