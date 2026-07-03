@@ -231,8 +231,11 @@ func (s *Store) cachedRead(f *os.File) (*File, error) {
 		return nil, err
 	}
 
-	// 副本存入缓存，避免外部修改影响缓存内容
-	cached := *file
+	// 深拷贝 Bundles 切片存入缓存，避免外部修改影响缓存内容
+	cached := File{
+		Bundles: make([]BundleRecord, len(file.Bundles)),
+	}
+	copy(cached.Bundles, file.Bundles)
 	s.mu.Lock()
 	s.cache = &cached
 	s.mtime = curMtime
