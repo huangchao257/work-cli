@@ -204,4 +204,3 @@ func saveFileDirect(path string, f *File) error {
 	tmp.Close()
 	return os.Rename(tmpPath, path)
 }
-

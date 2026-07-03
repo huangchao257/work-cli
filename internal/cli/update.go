@@ -3,9 +3,9 @@ package cli
 import (
 	"context"
 
-	"github.com/spf13/cobra"
 	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
+	"github.com/spf13/cobra"
 )
 
 var updateCmd = &cobra.Command{

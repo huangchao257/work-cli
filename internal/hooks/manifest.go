@@ -1,14 +1,14 @@
 package hooks
 
 type Manifest struct {
-	Type        string         `yaml:"type"`
-	Name        string         `yaml:"name"`
-	Version     string         `yaml:"version"`
-	Description string         `yaml:"description"`
-	Env         []EnvVar       `yaml:"env"`
-	Telemetry   TelemetrySpec  `yaml:"telemetry"`
-	Resources   HookResources  `yaml:"resources"`
-	Targets     []string       `yaml:"targets"`
+	Type        string        `yaml:"type"`
+	Name        string        `yaml:"name"`
+	Version     string        `yaml:"version"`
+	Description string        `yaml:"description"`
+	Env         []EnvVar      `yaml:"env"`
+	Telemetry   TelemetrySpec `yaml:"telemetry"`
+	Resources   HookResources `yaml:"resources"`
+	Targets     []string      `yaml:"targets"`
 }
 
 type EnvVar struct {

@@ -70,9 +70,9 @@ func TestExitErrorUnwrap(t *testing.T) {
 
 func TestIsUsageError(t *testing.T) {
 	tests := []struct {
-		name    string
-		err     error
-		expect  bool
+		name   string
+		err    error
+		expect bool
 	}{
 		{"usage.New", usage.New("参数错误"), true},
 		{"usage.Wrap", usage.Wrap(errors.New("inner"), "用法错误"), true},

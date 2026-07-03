@@ -3,12 +3,12 @@ package hooks
 import "time"
 
 type Status struct {
-	PendingCount   int        `json:"pending_count"`
-	OldestPending  *time.Time `json:"oldest_pending,omitempty"`
-	LastSync       *time.Time `json:"last_sync,omitempty"`
-	LastError      string     `json:"last_error,omitempty"`
-	TelemetryURL   string     `json:"telemetry_url,omitempty"`
-	TelemetryOn    bool       `json:"telemetry_enabled"`
+	PendingCount  int        `json:"pending_count"`
+	OldestPending *time.Time `json:"oldest_pending,omitempty"`
+	LastSync      *time.Time `json:"last_sync,omitempty"`
+	LastError     string     `json:"last_error,omitempty"`
+	TelemetryURL  string     `json:"telemetry_url,omitempty"`
+	TelemetryOn   bool       `json:"telemetry_enabled"`
 }
 
 func GetStatus() (Status, error) {

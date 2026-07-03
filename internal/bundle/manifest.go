@@ -3,14 +3,14 @@
 package bundle
 
 type Manifest struct {
-	Type        string         `yaml:"type"`
-	Name        string         `yaml:"name"`
-	Version     string         `yaml:"version"`
-	Description string         `yaml:"description"`
-	Env         []EnvVar       `yaml:"env"`
-	Resources   Resources      `yaml:"resources"`
-	Targets     []string       `yaml:"targets"`
-	PostInstall *PostInstall   `yaml:"post_install"`
+	Type        string       `yaml:"type"`
+	Name        string       `yaml:"name"`
+	Version     string       `yaml:"version"`
+	Description string       `yaml:"description"`
+	Env         []EnvVar     `yaml:"env"`
+	Resources   Resources    `yaml:"resources"`
+	Targets     []string     `yaml:"targets"`
+	PostInstall *PostInstall `yaml:"post_install"`
 }
 
 // PostInstall runs after a successful bundle install (optional).

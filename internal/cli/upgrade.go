@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/spf13/cobra"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/huangchao257/work-cli/internal/selfupdate"
+	"github.com/spf13/cobra"
 )
 
 var (

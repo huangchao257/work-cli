@@ -20,12 +20,12 @@ type ListResult struct {
 }
 
 type ListItem struct {
-	Name           string `json:"name"`
-	Kind           string `json:"kind"`
-	Version        string `json:"version"`
-	Scope          string `json:"scope"`
-	Ref            string `json:"ref"`
-	InstalledAt    string `json:"installed_at"`
+	Name           string   `json:"name"`
+	Kind           string   `json:"kind"`
+	Version        string   `json:"version"`
+	Scope          string   `json:"scope"`
+	Ref            string   `json:"ref"`
+	InstalledAt    string   `json:"installed_at"`
 	IDEs           []string `json:"ides,omitempty"`
-	InstallCommand string `json:"install_command,omitempty"`
+	InstallCommand string   `json:"install_command,omitempty"`
 }

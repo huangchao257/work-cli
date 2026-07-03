@@ -198,6 +198,7 @@ func manifestTargetsSet() map[string]bool {
 	}
 	return m
 }
+
 var manifestTargets = manifestTargetsSet()
 
 // depth 返回归档内条目的路径层数（无斜号为 0，a/b 为 1）。
