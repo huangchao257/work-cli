@@ -1,3 +1,5 @@
+// Package engine 编排资源安装/卸载/更新核心流程，按包类型分发至对应处理器。
+
 package engine
 
 import (

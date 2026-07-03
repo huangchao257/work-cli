@@ -1,3 +1,5 @@
+// Package catalog 维护内置资源包目录，供 work install 不依赖 Registry 直接安装。
+
 package catalog
 
 import (

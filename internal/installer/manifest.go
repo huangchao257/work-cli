@@ -1,3 +1,5 @@
+// Package installer 解析 installer.yaml，并执行外部 CLI 工具的安装与校验命令。
+
 package installer
 
 import "github.com/huangchao257/work-cli/internal/bundle"

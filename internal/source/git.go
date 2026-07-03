@@ -1,3 +1,5 @@
+// Package source 解析安装引用的来源（内置 catalog / registry / git），并拉取包内容。
+
 package source
 
 import (

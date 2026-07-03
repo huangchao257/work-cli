@@ -1,3 +1,5 @@
+// Package adapter 提供各 IDE（Cursor/Qoder/Claude Code）资源文件的写入适配层。
+
 package adapter
 
 import (

@@ -1,3 +1,5 @@
+// Package platform 提供跨平台路径解析、IDE 目录定位与环境变量提示。
+
 package platform
 
 import "runtime"

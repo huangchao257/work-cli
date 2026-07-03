@@ -1,3 +1,5 @@
+// Package selfupdate 实现从 GitHub Releases 检查、下载与替换 work 二进制。
+
 package selfupdate
 
 import (

@@ -1,3 +1,5 @@
+// Package bundle 提供 Skills/Rules/MCP 资源套装（bundle.yaml）的解析与校验。
+
 package bundle
 
 type Manifest struct {

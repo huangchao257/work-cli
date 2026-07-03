@@ -1,3 +1,5 @@
+// Package cli 提供 cobra 命令定义、持久化 flags、帮助定制与自更新钩子。
+
 package cli
 
 import (

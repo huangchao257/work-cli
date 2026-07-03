@@ -1,3 +1,5 @@
+// Package hooks 解析 hooks.yaml、合并 IDE 配置、安装 sidecar 脚本，并管理 telemetry 事件采集/脱敏/上报。
+
 package hooks
 
 import (

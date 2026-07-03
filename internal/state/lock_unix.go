@@ -1,3 +1,5 @@
+// Package state 管理 installed.json 持久化状态，提供并发安全的读写操作。
+
 //go:build !windows
 
 package state

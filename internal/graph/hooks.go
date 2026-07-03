@@ -1,3 +1,5 @@
+// Package graph 封装 codegraph CLI，提供知识图谱 init/sync/status 与 AGENTS.md 自动同步。
+
 package graph
 
 import (

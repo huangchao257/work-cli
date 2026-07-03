@@ -1,3 +1,5 @@
+// Package output 提供 human（默认）与 --json 两种输出渲染器。
+
 package output
 
 import (
