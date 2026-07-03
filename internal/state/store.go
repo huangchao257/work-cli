@@ -1,40 +1,13 @@
 package state
 
 import (
-	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
-
-// exclusiveLock 对文件描述符 fd 加独占锁（阻塞式），防止并发写入损坏 installed.json。
-// 阻塞超时 5 秒，避免死锁导致命令永久挂起。
-func exclusiveLock(f *os.File, path string) error {
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return fmt.Errorf("加锁状态文件失败 %s: %w", path, err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("获取状态文件锁超时 %s，可能有其他 work 进程正在操作", path)
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-// exclusiveUnlock 释放文件描述符 fd 上的独占锁。
-func exclusiveUnlock(f *os.File) error {
-	return syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-}
 
 type Store struct {
 	path string
@@ -48,65 +21,26 @@ func Open(path string) (*Store, error) {
 	return &Store{path: path}, nil
 }
 
-// loadUnlocked 读取并解析状态文件（调用方需持有锁）。
-func loadUnlocked(path string) (*File, error) {
-	data, err := os.ReadFile(path)
+// Load 读取状态文件（加共享锁）返回快照。
+func (s *Store) Load() (*File, error) {
+	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return &File{}, nil
-		}
-		return nil, err
-	}
-	// 处理空文件（可能是 O_CREATE 新建的空文件）
-	if len(bytes.TrimSpace(data)) == 0 {
-		return &File{}, nil
-	}
-	var f File
-	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, fmt.Errorf("解析状态文件失败: %w", err)
-	}
-	return &f, nil
-}
-
-// saveUnlocked 序列化并写入状态文件（调用方需持有锁）。
-func saveUnlocked(path string, f *File) error {
-	data, err := json.MarshalIndent(f, "", "  ")
-	if err != nil {
-		return fmt.Errorf("编码状态文件失败: %w", err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("写入状态文件失败: %w", err)
-	}
-	return nil
-}
-
-// withLock 持有文件锁执行 fn，保证并发安全。
-func (s *Store) withLock(fn func() error) error {
-	f, err := os.OpenFile(s.path, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return fmt.Errorf("打开状态文件失败: %w", err)
+		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := exclusiveLock(f, s.path); err != nil {
-		return err
+	if err := flockLock(f, s.path, lockSH); err != nil {
+		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
 	}
-	defer func() {
-		// 释放锁失败仅记录，不影响主流程
-		_ = exclusiveUnlock(f)
-	}()
-	return fn()
+	defer func() { _ = flockUnlock(f) }()
+
+	return readFileUnlocked(f)
 }
 
-// Load 读取并解析状态文件（外部访问，不加锁；仅读取快照）。
-// 需要并发安全的读取-修改-写入时，请使用 Store 的其他方法。
-func (s *Store) Load() (*File, error) {
-	return loadUnlocked(s.path)
-}
-
-// Save 写入状态文件（外部访问，不加锁）。
-// 需要并发安全的写入时，请使用 Store 的其他方法。
+// Save 写入状态文件（加独占锁 + 原子写入）。
 func (s *Store) Save(f *File) error {
-	return saveUnlocked(s.path, f)
+	return s.withLock(func() error {
+		return atomicWrite(s.path, f)
+	})
 }
 
 // Upsert 插入或更新一条 BundleRecord。采用文件锁保证并发安全。
@@ -118,34 +52,34 @@ func (s *Store) Upsert(rec BundleRecord) error {
 		return fmt.Errorf("记录范围不能为空")
 	}
 	return s.withLock(func() error {
-		f, err := loadUnlocked(s.path)
+		file, err := readStateFile(s.path)
 		if err != nil {
 			return err
 		}
 		if rec.InstalledAt.IsZero() {
 			rec.InstalledAt = time.Now().UTC()
 		}
-		for i, existing := range f.Bundles {
+		for i, existing := range file.Bundles {
 			if existing.Name == rec.Name && existing.Scope == rec.Scope {
-				f.Bundles[i] = rec
-				return saveUnlocked(s.path, f)
+				file.Bundles[i] = rec
+				return atomicWrite(s.path, file)
 			}
 		}
-		f.Bundles = append(f.Bundles, rec)
-		return saveUnlocked(s.path, f)
+		file.Bundles = append(file.Bundles, rec)
+		return atomicWrite(s.path, file)
 	})
 }
 
 // Remove 从状态中移除指定 name/scope 的记录，加锁保证并发安全。
 func (s *Store) Remove(name, scope string) error {
 	return s.withLock(func() error {
-		f, err := loadUnlocked(s.path)
+		file, err := readStateFile(s.path)
 		if err != nil {
 			return err
 		}
-		out := make([]BundleRecord, 0, len(f.Bundles))
+		out := make([]BundleRecord, 0, len(file.Bundles))
 		found := false
-		for _, b := range f.Bundles {
+		for _, b := range file.Bundles {
 			if b.Name == name && b.Scope == scope {
 				found = true
 				continue
@@ -155,19 +89,28 @@ func (s *Store) Remove(name, scope string) error {
 		if !found {
 			return fmt.Errorf("未找到已安装项: %s (scope=%s)", name, scope)
 		}
-		f.Bundles = out
-		return saveUnlocked(s.path, f)
+		file.Bundles = out
+		return atomicWrite(s.path, file)
 	})
 }
 
-// Find 查找指定 name/scope 的记录，返回深拷贝避免外部修改污染内存缓存。
-// 读取操作不加锁（数据快照），调用方不应假设强一致性。
+// Find 查找指定 name/scope 的记录（加共享锁），返回深拷贝。
 func (s *Store) Find(name, scope string) (*BundleRecord, error) {
-	f, err := loadUnlocked(s.path)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("打开状态文件失败: %w", err)
+	}
+	defer f.Close()
+	if err := flockLock(f, s.path, lockSH); err != nil {
+		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
+	}
+	defer func() { _ = flockUnlock(f) }()
+
+	file, err := readFileUnlocked(f)
 	if err != nil {
 		return nil, err
 	}
-	for _, b := range f.Bundles {
+	for _, b := range file.Bundles {
 		if b.Name == name && b.Scope == scope {
 			copy := b
 			return &copy, nil
@@ -176,21 +119,112 @@ func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 	return nil, fmt.Errorf("未找到已安装项: %s (scope=%s)", name, scope)
 }
 
-// List 列出已安装记录，可按 kind 过滤。
-// 读取操作不加锁（数据快照），调用方不应假设强一致性。
+// List 列出已安装记录（加共享锁），可按 kind 过滤。
 func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
-	f, err := loadUnlocked(s.path)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("打开状态文件失败: %w", err)
+	}
+	defer f.Close()
+	if err := flockLock(f, s.path, lockSH); err != nil {
+		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
+	}
+	defer func() { _ = flockUnlock(f) }()
+
+	file, err := readFileUnlocked(f)
 	if err != nil {
 		return nil, err
 	}
 	if kindFilter == "" {
-		return f.Bundles, nil
+		return file.Bundles, nil
 	}
 	out := make([]BundleRecord, 0)
-	for _, b := range f.Bundles {
+	for _, b := range file.Bundles {
 		if b.Kind == kindFilter {
 			out = append(out, b)
 		}
 	}
 	return out, nil
+}
+
+// lockSH / lockEX 用于跨平台锁类型
+const (
+	lockSH = 1 // shared
+	lockEX = 2 // exclusive
+)
+
+// withLock 持有独占锁执行 fn，保证并发安全。
+func (s *Store) withLock(fn func() error) error {
+	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("打开状态文件失败: %w", err)
+	}
+	defer f.Close()
+	if err := flockLock(f, s.path, lockEX); err != nil {
+		return err
+	}
+	defer func() { _ = flockUnlock(f) }()
+	return fn()
+}
+
+// readStateFile 读状态文件（调用方需持有锁）。
+func readStateFile(path string) (*File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &File{}, nil
+		}
+		return nil, fmt.Errorf("读取状态文件失败: %w", err)
+	}
+	defer f.Close()
+	return readFileUnlocked(f)
+}
+
+// readFileUnlocked 从已打开的文件描述符解析 File。
+func readFileUnlocked(f *os.File) (*File, error) {
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("获取状态文件信息失败: %w", err)
+	}
+	if fi.Size() == 0 {
+		return &File{}, nil
+	}
+	var file File
+	if err := json.NewDecoder(f).Decode(&file); err != nil {
+		return nil, fmt.Errorf("解析状态文件失败: %w", err)
+	}
+	return &file, nil
+}
+
+// atomicWrite 原子写入：先写临时文件再 rename，防止读到半写内容。
+func atomicWrite(path string, f *File) error {
+	data, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return fmt.Errorf("编码状态文件失败: %w", err)
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".installed-*.json")
+	if err != nil {
+		return fmt.Errorf("创建临时状态文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("写入临时状态文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时状态文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子写入状态文件失败: %w", err)
+	}
+	cleanup = false
+	return nil
 }
