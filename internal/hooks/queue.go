@@ -179,6 +179,9 @@ func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
 		b, _ := json.Marshal(e)
 		lines = append(lines, append(b, '\n')...)
 	}
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("读取队列行失败: %w", err)
+	}
 	if err := os.WriteFile(path, lines, 0o600); err != nil {
 		return fmt.Errorf("写入队列文件失败: %w", err)
 	}

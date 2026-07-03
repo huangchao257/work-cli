@@ -271,7 +271,7 @@ func replaceExecutable(dest string, data []byte) error {
 			_ = os.Rename(backup, dest)
 			return fmt.Errorf("安装新版本失败: %w", err)
 		}
-		// 成胜后清理备份；失败不影响结果
+		// 成功后清理备份；失败不影响结果
 		_ = os.Remove(backup)
 		return nil
 	}
