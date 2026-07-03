@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 type RegistryConfig struct {
@@ -36,11 +38,10 @@ type registryResponse struct {
 }
 
 func LoadUserConfig() (*UserConfig, error) {
-	home, err := os.UserHomeDir()
+	path, err := platform.ConfigFilePath()
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(home, ".work", "config.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -59,11 +60,11 @@ func CacheDir(cfg *UserConfig) (string, error) {
 	if cfg != nil && strings.TrimSpace(cfg.Cache.Dir) != "" {
 		return expandHome(cfg.Cache.Dir)
 	}
-	home, err := os.UserHomeDir()
+	base, err := platform.WorkConfigDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".work", "cache"), nil
+	return filepath.Join(base, "cache"), nil
 }
 
 func ResolveRegistry(name string, cfg *UserConfig) (string, error) {

@@ -24,11 +24,7 @@ func errUsage(format string, a ...any) error {
 
 // Path 返回 ~/.work/config.yaml 的绝对路径。
 func Path() (string, error) {
-	dir, err := platform.WorkConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "config.yaml"), nil
+	return platform.ConfigFilePath()
 }
 
 // Load 读取并解析配置文件，返回根 mapping node。

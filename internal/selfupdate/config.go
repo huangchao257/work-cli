@@ -3,11 +3,12 @@ package selfupdate
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 const defaultCheckInterval = 2 * time.Hour
@@ -26,11 +27,10 @@ type fileConfig struct {
 
 func LoadConfig() (Config, error) {
 	cfg := defaultConfig()
-	home, err := os.UserHomeDir()
+	path, err := platform.ConfigFilePath()
 	if err != nil {
 		return applyEnv(cfg), nil
 	}
-	path := filepath.Join(home, ".work", "config.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {

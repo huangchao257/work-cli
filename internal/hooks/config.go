@@ -2,11 +2,12 @@ package hooks
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 type TelemetryConfig struct {
@@ -25,11 +26,10 @@ type userConfigFile struct {
 
 func LoadTelemetryConfig() (TelemetryConfig, error) {
 	cfg := defaultTelemetryConfig()
-	home, err := os.UserHomeDir()
+	path, err := platform.ConfigFilePath()
 	if err != nil {
 		return cfg, err
 	}
-	path := filepath.Join(home, ".work", "config.yaml")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -123,25 +123,9 @@ func ResolveRedactFields(m *Manifest, cfg TelemetryConfig) []string {
 }
 
 func TelemetryDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".work", "telemetry")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return platform.WorkSubDir("telemetry")
 }
 
 func HooksInstalledDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".work", "hooks-installed")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return platform.WorkSubDir("hooks-installed")
 }
