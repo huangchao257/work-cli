@@ -28,7 +28,7 @@ func Open(path string) (*Store, error) {
 
 // Load 读取状态文件（加共享锁）返回快照。使用 mtime 缓存避免重复解析。
 func (s *Store) Load() (*File, error) {
-	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
@@ -117,7 +117,7 @@ func (s *Store) Remove(name, scope string) error {
 
 // Find 查找指定 name/scope 的记录（加共享锁），返回深拷贝。利用 mtime 缓存。
 func (s *Store) Find(name, scope string) (*BundleRecord, error) {
-	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
@@ -142,7 +142,7 @@ func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 
 // List 列出已安装记录（加共享锁），可按 kind 过滤。利用 mtime 缓存。
 func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
-	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
@@ -176,7 +176,7 @@ const (
 
 // withLock 持有独占锁执行 fn，保证并发安全。
 func (s *Store) withLock(fn func() error) error {
-	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return fmt.Errorf("打开状态文件失败: %w", err)
 	}

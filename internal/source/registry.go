@@ -124,6 +124,9 @@ func expandHome(path string) (string, error) {
 }
 
 func downloadFile(url, dest string) error {
+	if !strings.HasPrefix(url, "https://") {
+		return fmt.Errorf("下载 URL 必须使用 HTTPS")
+	}
 	resp, err := http.Get(url)
 	if err != nil {
 		return fmt.Errorf("请求下载失败: %w", err)
@@ -167,6 +170,10 @@ func unzip(src, dest string) error {
 	}
 	defer r.Close()
 	for _, f := range r.File {
+		// 拒绝符号链接，防止通过 zip 中的 symlink 逃逸目标目录
+		if f.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("zip 中的符号链接不被允许: %s", f.Name)
+		}
 		target := filepath.Join(dest, f.Name)
 		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
 			return fmt.Errorf("非法 zip 路径")

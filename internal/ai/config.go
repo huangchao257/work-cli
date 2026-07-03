@@ -30,6 +30,15 @@ type aiFileConfig struct {
 	} `yaml:"ai"`
 }
 
+// String 返回模型配置的概要描述，API Key 脱敏显示。
+func (c *ModelConfig) String() string {
+	keyDisplay := "[未设置]"
+	if strings.TrimSpace(c.APIKey) != "" {
+		keyDisplay = "[已设置]"
+	}
+	return fmt.Sprintf("ModelConfig{provider=%s, model=%s, api_key=%s}", c.Provider, c.Model, keyDisplay)
+}
+
 // sysConfigPath 返回 ~/.work/config.yaml 的绝对路径，用于测试替换。
 var sysConfigPath = platform.ConfigFilePath
 

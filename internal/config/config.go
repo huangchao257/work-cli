@@ -78,6 +78,7 @@ func Save(root *yaml.Node) error {
 
 // Get 按点分路径取值。scalar 返回原值；mapping/sequence 返回 YAML 文本。
 // 找不到键时返回 ("", false, nil)，不报错。
+// api_key 类键自动脱敏：仅返回 [已设置] 或 [未设置]。
 func Get(key string) (string, bool, error) {
 	if err := validateKey(key); err != nil {
 		return "", false, err
@@ -94,7 +95,8 @@ func Get(key string) (string, bool, error) {
 			return "", false, nil
 		}
 		if i == len(parts)-1 {
-			return renderValue(v), true, nil
+			val := renderValue(v)
+			return redactSecretValue(key, val), true, nil
 		}
 		if v.Kind != yaml.MappingNode {
 			// 路径穿越非 mapping 节点：视为键不存在。
@@ -103,6 +105,17 @@ func Get(key string) (string, bool, error) {
 		cur = v
 	}
 	return "", false, nil
+}
+
+// redactSecretValue 对含 api_key 后缀的键值进行脱敏，返回 [已设置] 或 [未设置]。
+func redactSecretValue(key, val string) string {
+	if strings.HasSuffix(key, ".api_key") || strings.HasSuffix(key, ".API_KEY") {
+		if strings.TrimSpace(val) == "" {
+			return "[未设置]"
+		}
+		return "[已设置]"
+	}
+	return val
 }
 
 // Set 按点分路径设值，按需创建中间 mapping 节点。
@@ -262,6 +275,14 @@ func flatten(n *yaml.Node, prefix string, out map[string]string) {
 			out[key] = renderValue(v)
 		default:
 			out[key] = v.Value
+		}
+		// 脱敏 api_key 类键：仅显示 [已设置] 或 [未设置]
+		if strings.HasSuffix(key, ".api_key") || strings.HasSuffix(key, ".API_KEY") {
+			if strings.TrimSpace(v.Value) == "" {
+				out[key] = "[未设置]"
+			} else {
+				out[key] = "[已设置]"
+			}
 		}
 	}
 }
