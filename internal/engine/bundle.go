@@ -185,7 +185,7 @@ func mcpIDs(mcps []bundle.MCPResource) []string {
 }
 
 func runBundlePostInstall(ctx context.Context, manifest *bundle.Manifest, opts Options) error {
-	if manifest.PostInstall == nil {
+	if manifest == nil || manifest.PostInstall == nil {
 		return nil
 	}
 	when := manifest.PostInstall.WhenScope
