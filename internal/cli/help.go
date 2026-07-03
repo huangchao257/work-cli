@@ -16,11 +16,18 @@ const rootHelpExamples = `
   work install openspec             安装外部 CLI
   work hooks status                 查看事件上报队列
   work hooks sync                   同步队列到内网
+  work hooks audit                  审计 hooks 事件队列
   work list                         查看已安装项
+  work search                       搜索可安装资源
   work update                       更新已安装资源
   work upgrade                      手动更新 work 自身
   work upgrade --check              检查 work 是否有新版本
   work install dev-kit --no-auto-update  跳过自动更新检查
+  work init bundle my-kit           生成 bundle 骨架
+  work pack ./mykit                 打包资源
+  work publish ./mykit-0.1.0.tar.gz  发布到 Registry
+  work config list                  查看配置
+  work doctor                       体检运行环境
   work version                      查看当前版本`
 
 func init() {

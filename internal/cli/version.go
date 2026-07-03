@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/huangchao257/work-cli/internal/selfupdate"
+	"github.com/spf13/cobra"
 )
 
 // Version 由构建时 -ldflags 注入，开发构建默认为 dev。
@@ -20,6 +20,9 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "显示版本号",
 	Long:  "显示当前 work 版本。默认会检查 GitHub 是否有新版本可用。",
+	Example: `  work version
+	  work version --json
+	  work version --check-update=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := fmt.Fprintln(cmd.OutOrStdout(), Version); err != nil {
 			return err

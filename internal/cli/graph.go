@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/spf13/cobra"
 	"github.com/huangchao257/work-cli/internal/graph"
+	"github.com/spf13/cobra"
 )
 
 var graphPath string
@@ -26,6 +26,9 @@ var graphInitCmd = &cobra.Command{
 	Use:   "init",
 	Short: "初始化知识图谱并开启 AGENTS.md 自动同步",
 	Long:  "等同 codegraph init -i，并自动配置 Cursor hooks、生成 AGENTS.md。",
+	Example: `  work graph init
+	  work graph init --path /path/to/project
+	  work graph init --dry-run`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return graph.Init(context.Background(), graph.Options{
 			ProjectPath: graphPath,
@@ -37,6 +40,9 @@ var graphInitCmd = &cobra.Command{
 var graphSyncCmd = &cobra.Command{
 	Use:   "sync",
 	Short: "同步 CodeGraph 索引并更新 AGENTS.md",
+	Long:  "手动执行 codegraph sync 并重新生成各目录 AGENTS.md。已开启自动同步时通常无需手动执行。",
+	Example: `  work graph sync
+	  work graph sync --path /path/to/project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return graph.Sync(context.Background(), graph.Options{
 			ProjectPath: graphPath,
@@ -49,6 +55,10 @@ var graphSyncCmd = &cobra.Command{
 var graphStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "查看图谱与 AGENTS 自动同步状态",
+	Long:  "显示 CodeGraph 索引状态、hook 自动同步开关以及 AGENTS.md 示例数。",
+	Example: `  work graph status
+	  work graph status --json
+	  work graph status --path /path/to/project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return graph.PrintStatus(context.Background(), graph.Options{
 			ProjectPath: graphPath,

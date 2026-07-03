@@ -55,7 +55,7 @@ func fetchLatestRelease(ctx context.Context, client *http.Client, repo string) (
 		return nil, fmt.Errorf("解析 Release 信息失败: %w", err)
 	}
 	if info.TagName == "" {
-		return nil, fmt.Errorf("Release 缺少 tag_name")
+		return nil, fmt.Errorf("Release 缺少 tag_name 字段")
 	}
 	return &info, nil
 }
