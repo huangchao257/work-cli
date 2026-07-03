@@ -6,11 +6,16 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Store struct {
 	path string
+
+	mu    sync.Mutex
+	cache *File
+	mtime int64 // 缓存对应的文件 mtime (UnixNano)，0 表示无缓存
 }
 
 func Open(path string) (*Store, error) {
@@ -21,7 +26,7 @@ func Open(path string) (*Store, error) {
 	return &Store{path: path}, nil
 }
 
-// Load 读取状态文件（加共享锁）返回快照。
+// Load 读取状态文件（加共享锁）返回快照。使用 mtime 缓存避免重复解析。
 func (s *Store) Load() (*File, error) {
 	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
 	if err != nil {
@@ -33,14 +38,18 @@ func (s *Store) Load() (*File, error) {
 	}
 	defer func() { _ = flockUnlock(f) }()
 
-	return readFileUnlocked(f)
+	return s.cachedRead(f)
 }
 
-// Save 写入状态文件（加独占锁 + 原子写入）。
+// Save 写入状态文件（加独占锁 + 原子写入），写入后清除缓存。
 func (s *Store) Save(f *File) error {
-	return s.withLock(func() error {
+	err := s.withLock(func() error {
 		return atomicWrite(s.path, f)
 	})
+	if err == nil {
+		s.InvalidateCache()
+	}
+	return err
 }
 
 // Upsert 插入或更新一条 BundleRecord。采用文件锁保证并发安全。
@@ -62,11 +71,19 @@ func (s *Store) Upsert(rec BundleRecord) error {
 		for i, existing := range file.Bundles {
 			if existing.Name == rec.Name && existing.Scope == rec.Scope {
 				file.Bundles[i] = rec
-				return atomicWrite(s.path, file)
+				if werr := atomicWrite(s.path, file); werr != nil {
+					return werr
+				}
+				s.InvalidateCache()
+				return nil
 			}
 		}
 		file.Bundles = append(file.Bundles, rec)
-		return atomicWrite(s.path, file)
+		if werr := atomicWrite(s.path, file); werr != nil {
+			return werr
+		}
+		s.InvalidateCache()
+		return nil
 	})
 }
 
@@ -90,11 +107,15 @@ func (s *Store) Remove(name, scope string) error {
 			return fmt.Errorf("未找到已安装项: %s (scope=%s)", name, scope)
 		}
 		file.Bundles = out
-		return atomicWrite(s.path, file)
+		if werr := atomicWrite(s.path, file); werr != nil {
+			return werr
+		}
+		s.InvalidateCache()
+		return nil
 	})
 }
 
-// Find 查找指定 name/scope 的记录（加共享锁），返回深拷贝。
+// Find 查找指定 name/scope 的记录（加共享锁），返回深拷贝。利用 mtime 缓存。
 func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
 	if err != nil {
@@ -106,7 +127,7 @@ func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 	}
 	defer func() { _ = flockUnlock(f) }()
 
-	file, err := readFileUnlocked(f)
+	file, err := s.cachedRead(f)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +140,7 @@ func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 	return nil, fmt.Errorf("未找到已安装项: %s (scope=%s)", name, scope)
 }
 
-// List 列出已安装记录（加共享锁），可按 kind 过滤。
+// List 列出已安装记录（加共享锁），可按 kind 过滤。利用 mtime 缓存。
 func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 	f, err := os.OpenFile(s.path, os.O_RDONLY|os.O_CREATE, 0o644)
 	if err != nil {
@@ -131,7 +152,7 @@ func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 	}
 	defer func() { _ = flockUnlock(f) }()
 
-	file, err := readFileUnlocked(f)
+	file, err := s.cachedRead(f)
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +201,46 @@ func readStateFile(path string) (*File, error) {
 	return readFileUnlocked(f)
 }
 
-// readFileUnlocked 从已打开的文件描述符解析 File。
+// InvalidateCache 清除 Store 的内存缓存，写操作后自动调用，
+// 也可在外部写入 installed.json 后显式调用。
+func (s *Store) InvalidateCache() {
+	s.mu.Lock()
+	s.cache = nil
+	s.mtime = 0
+	s.mu.Unlock()
+}
+
+// cachedRead 读状态文件，文件 mtime 未变则直接返回缓存副本。
+func (s *Store) cachedRead(f *os.File) (*File, error) {
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("获取状态文件信息失败: %w", err)
+	}
+	curMtime := fi.ModTime().UnixNano()
+
+	s.mu.Lock()
+	if s.cache != nil && s.mtime == curMtime {
+		cpy := *s.cache
+		s.mu.Unlock()
+		return &cpy, nil
+	}
+	s.mu.Unlock()
+
+	file, err := readFileUnlocked(f)
+	if err != nil {
+		return nil, err
+	}
+
+	// 副本存入缓存，避免外部修改影响缓存内容
+	cached := *file
+	s.mu.Lock()
+	s.cache = &cached
+	s.mtime = curMtime
+	s.mu.Unlock()
+
+	return file, nil
+}
+
 func readFileUnlocked(f *os.File) (*File, error) {
 	fi, err := f.Stat()
 	if err != nil {

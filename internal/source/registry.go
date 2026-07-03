@@ -15,6 +15,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/huangchao257/work-cli/internal/configcache"
 	"github.com/huangchao257/work-cli/internal/platform"
 )
 
@@ -42,7 +43,7 @@ func LoadUserConfig() (*UserConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := configcache.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return &UserConfig{}, nil

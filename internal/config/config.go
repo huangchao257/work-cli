@@ -14,6 +14,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/huangchao257/work-cli/internal/configcache"
 	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/usage"
 )
@@ -34,7 +35,7 @@ func Load() (*yaml.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(p)
+	data, err := configcache.ReadFile(p)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return emptyMapping(), nil
@@ -71,6 +72,7 @@ func Save(root *yaml.Node) error {
 	if err := os.WriteFile(p, data, 0600); err != nil {
 		return fmt.Errorf("写入配置文件失败: %w", err)
 	}
+	configcache.Invalidate(p)
 	return nil
 }
 

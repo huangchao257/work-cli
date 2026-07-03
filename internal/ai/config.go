@@ -9,6 +9,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/huangchao257/work-cli/internal/configcache"
 	"github.com/huangchao257/work-cli/internal/platform"
 )
 
@@ -42,7 +43,7 @@ func LoadModelConfig(profile string) (*ModelConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("无法定位配置文件: %w", err)
 	}
-	data, err := os.ReadFile(path)
+	data, err := configcache.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("未找到 %s，请先配置 ai.models 段", path)
@@ -83,7 +84,7 @@ func ListProfiles() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, err := os.ReadFile(path)
+	data, err := configcache.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
