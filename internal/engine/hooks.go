@@ -17,7 +17,7 @@ import (
 func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw string) (Result, error) {
 	manifest, err := hooks.ParseDir(pkgDir)
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("解析 hooks.yaml 失败: %w", err)
 	}
 	if missing := hooks.CheckRequiredEnv(manifest); len(missing) > 0 {
 		var b strings.Builder
@@ -34,7 +34,7 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 	tcfg, _ := hooks.LoadTelemetryConfig()
 	events, err := hooks.ResolveEvents(manifest, tcfg.Events)
 	if err != nil {
-		return Result{}, err
+		return Result{}, fmt.Errorf("解析 hooks 事件失败: %w", err)
 	}
 
 	targetIDEs := manifest.Targets
@@ -86,11 +86,11 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 
 		configPath, err := hooks.HooksConfigPath(ideName, opts.Scope)
 		if err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("定位 hooks 配置路径失败: %w", err)
 		}
 		scriptDir, err := hooks.HooksScriptDir(ideName, opts.Scope, manifest.Name)
 		if err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("定位 hooks 脚本目录失败: %w", err)
 		}
 
 		if opts.DryRun {
@@ -100,21 +100,21 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 		}
 
 		if err := os.MkdirAll(scriptDir, 0o755); err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("创建脚本目录失败: %w", err)
 		}
 
 		for _, hr := range manifest.Resources.Hooks {
 			src := filepath.Join(pkgDir, hr.Source)
 			dst := filepath.Join(scriptDir, filepath.Base(hr.Source))
 			if err := copyutil.CopyFile(src, dst); err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("复制 hook 脚本 %s 失败: %w", hr.Source, err)
 			}
 			files = append(files, dst)
 		}
 
 		baseScript := filepath.Join(scriptDir, "telemetry.sh")
 		if err := hooks.WriteTelemetryScript(baseScript, workBin, manifest.Name, opts.Scope); err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("写入 telemetry 脚本失败: %w", err)
 		}
 		files = append(files, baseScript)
 
@@ -123,11 +123,11 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 			wrapperName := wrapperFileName(b)
 			wrapperPath := filepath.Join(scriptDir, wrapperName)
 			if err := hooks.WriteWrapperScript(wrapperPath, baseScript, ideName, b.IDEEvent, manifest.Name, opts.Scope); err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("写入 wrapper 脚本 %s 失败: %w", wrapperName, err)
 			}
 			cmdPath, err := hooks.CommandPathForIDE(ideName, opts.Scope, manifest.Name, wrapperName)
 			if err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("解析 wrapper 命令路径失败: %w", err)
 			}
 			entries = append(entries, hooks.SidecarEntry{
 				IDEEvent: b.IDEEvent,
@@ -141,11 +141,11 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 		switch ideName {
 		case "cursor":
 			if err := hooks.MergeCursorHooks(configPath, entries); err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("合并 Cursor hooks 失败: %w", err)
 			}
 		default:
 			if err := hooks.MergeSettingsHooks(configPath, entries); err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("合并 settings hooks 失败: %w", err)
 			}
 		}
 		files = append(files, configPath)
@@ -164,7 +164,7 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 
 	if !opts.DryRun {
 		if err := hooks.SaveSidecar(sidecar); err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("保存 sidecar 记录失败: %w", err)
 		}
 		rec := state.BundleRecord{
 			Name:    manifest.Name,
@@ -180,14 +180,14 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 		}
 		statePath, err := platform.WorkStatePath(opts.Scope)
 		if err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("定位状态文件路径失败: %w", err)
 		}
 		store, err := state.Open(statePath)
 		if err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("打开状态文件失败: %w", err)
 		}
 		if err := store.Upsert(rec); err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("写入安装记录失败: %w", err)
 		}
 	}
 
@@ -218,15 +218,17 @@ func uninstallHooks(ctx context.Context, rec *state.BundleRecord, dryRun bool) e
 		switch ide {
 		case "cursor":
 			if err := hooks.UnmergeCursorHooks(info.ConfigPath); err != nil {
-				return err
+				return fmt.Errorf("移除 Cursor hooks 失败: %w", err)
 			}
 		default:
 			if err := hooks.UnmergeSettingsHooks(info.ConfigPath); err != nil {
-				return err
+				return fmt.Errorf("移除 settings hooks 失败: %w", err)
 			}
 		}
+		// 清理脚本目录：失败不阻断卸载流程，残留文件可在下次卸载时清理
 		_ = os.RemoveAll(info.ScriptDir)
 	}
+	// 移除 sidecar 记录：失败不阻断，记录残留不影响 IDE 行为
 	_ = hooks.RemoveSidecar(rec.Name)
 	return nil
 }
@@ -242,15 +244,18 @@ func uninstallHooksFallback(rec *state.BundleRecord, dryRun bool) error {
 		}
 		switch ide {
 		case "cursor":
+			// 尽力移除，失败时配置文件可能已不存在
 			_ = hooks.UnmergeCursorHooks(configPath)
 		default:
 			_ = hooks.UnmergeSettingsHooks(configPath)
 		}
 		scriptDir, err := hooks.HooksScriptDir(ide, rec.Scope, rec.Name)
 		if err == nil {
+			// 清理脚本目录：失败可忽略
 			_ = os.RemoveAll(scriptDir)
 		}
 	}
+	// 移除 sidecar 记录：失败可忽略
 	_ = hooks.RemoveSidecar(rec.Name)
 	return nil
 }

@@ -16,7 +16,7 @@ type Store struct {
 func Open(path string) (*Store, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("创建状态目录失败: %w", err)
 	}
 	return &Store{path: path}, nil
 }
@@ -39,9 +39,12 @@ func (s *Store) Load() (*File, error) {
 func (s *Store) Save(f *File) error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码状态文件失败: %w", err)
 	}
-	return os.WriteFile(s.path, data, 0o644)
+	if err := os.WriteFile(s.path, data, 0o644); err != nil {
+		return fmt.Errorf("写入状态文件失败: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) Upsert(rec BundleRecord) error {

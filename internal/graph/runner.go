@@ -32,7 +32,7 @@ type Status struct {
 func Init(ctx context.Context, opts Options) error {
 	root, err := resolveRoot(opts.ProjectPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("解析项目根目录失败: %w", err)
 	}
 	if opts.DryRun {
 		fmt.Printf("（预览）将在 %s 执行 graph init\n", root)
@@ -49,11 +49,11 @@ func Init(ctx context.Context, opts Options) error {
 		return fmt.Errorf("未找到 codegraph-agents 技能，请先执行: work install codegraph-kit --scope project\n%w", err)
 	}
 	if err := setupCursorHook(root, script); err != nil {
-		return err
+		return fmt.Errorf("配置 Cursor hooks 失败: %w", err)
 	}
 	gen, err := findScript(root, "generate-agents.sh")
 	if err != nil {
-		return err
+		return fmt.Errorf("未找到 generate-agents.sh 脚本: %w", err)
 	}
 	if !opts.Quiet {
 		fmt.Println("正在生成 AGENTS.md ...")
@@ -63,7 +63,7 @@ func Init(ctx context.Context, opts Options) error {
 		args = append([]string{"--quiet"}, args...)
 	}
 	if err := runBash(ctx, root, gen, args...); err != nil {
-		return err
+		return fmt.Errorf("生成 AGENTS.md 失败: %w", err)
 	}
 	if !opts.Quiet {
 		fmt.Println("✓ 知识图谱与 AGENTS.md 已就绪；保存代码后将自动更新（约 2 秒）")
@@ -74,7 +74,7 @@ func Init(ctx context.Context, opts Options) error {
 func Sync(ctx context.Context, opts Options) error {
 	root, err := resolveRoot(opts.ProjectPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("解析项目根目录失败: %w", err)
 	}
 	if opts.DryRun {
 		fmt.Printf("（预览）将在 %s 执行 graph sync\n", root)
@@ -85,7 +85,7 @@ func Sync(ctx context.Context, opts Options) error {
 	}
 	gen, err := findScript(root, "generate-agents.sh")
 	if err != nil {
-		return err
+		return fmt.Errorf("未找到 generate-agents.sh 脚本: %w", err)
 	}
 	args := []string{"--quiet", "--skip-sync", "-p", root}
 	return runBash(ctx, root, gen, args...)
@@ -94,11 +94,11 @@ func Sync(ctx context.Context, opts Options) error {
 func PrintStatus(ctx context.Context, opts Options, w ioWriter) error {
 	root, err := resolveRoot(opts.ProjectPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("解析项目根目录失败: %w", err)
 	}
 	st, err := CollectStatus(ctx, root)
 	if err != nil {
-		return err
+		return fmt.Errorf("收集 CodeGraph 状态失败: %w", err)
 	}
 	if opts.Quiet {
 		enc := json.NewEncoder(w)
@@ -208,7 +208,10 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 	}
 	cmd := exec.Command("codegraph", "sync", "-p", root)
 	cmd.Dir = root
-	_ = cmd.Run()
+	// sync 是幂等的预同步，失败时不应阻断后续流程；记录到 stderr 供排查
+	if err := cmd.Run(); err != nil && !quiet {
+		fmt.Fprintf(os.Stderr, "警告: codegraph sync 预同步失败（已忽略）: %v\n", err)
+	}
 	return nil
 }
 
@@ -255,8 +258,8 @@ func hookConfigured(projectRoot string) bool {
 }
 
 type cursorHooksFile struct {
-	Version int                            `json:"version"`
-	Hooks   map[string][]cursorHookEntry   `json:"hooks"`
+	Version int                          `json:"version"`
+	Hooks   map[string][]cursorHookEntry `json:"hooks"`
 }
 
 type cursorHookEntry struct {
@@ -294,13 +297,16 @@ func setupCursorHook(projectRoot, hookScript string) error {
 	cfg.Hooks["afterFileEdit"] = filtered
 
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {
-		return err
+		return fmt.Errorf("创建 hooks 目录失败: %w", err)
 	}
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码 hooks.json 失败: %w", err)
 	}
-	return os.WriteFile(hooksPath, append(out, '\n'), 0o644)
+	if err := os.WriteFile(hooksPath, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("写入 hooks.json 失败: %w", err)
+	}
+	return nil
 }
 
 func runBash(ctx context.Context, dir, script string, args ...string) error {

@@ -55,11 +55,11 @@ func (u *Updater) repo() string {
 func (u *Updater) Check(ctx context.Context) (*CheckResult, error) {
 	info, err := fetchLatestRelease(ctx, u.HTTPClient, u.repo())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("查询最新版本失败: %w", err)
 	}
 	asset, err := resolveAsset(info, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析下载资产失败: %w", err)
 	}
 	latest := normalizeTag(info.TagName)
 	current := normalizeTag(u.CurrentVersion)
@@ -91,7 +91,7 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 
 	asset, err := resolveAsset(info, info.TagName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析下载资产失败: %w", err)
 	}
 
 	current := normalizeTag(u.CurrentVersion)
@@ -122,14 +122,14 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 
 	data, err := downloadAsset(ctx, u.HTTPClient, asset.URL)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("下载安装包失败: %w", err)
 	}
 	binData, err := extractBinary(asset.Name, data)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解压二进制失败: %w", err)
 	}
 	if err := replaceExecutable(exe, binData); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("替换可执行文件失败: %w", err)
 	}
 	return result, nil
 }
@@ -238,10 +238,12 @@ func replaceExecutable(dest string, data []byte) error {
 	}
 	tmpName := tmp.Name()
 	defer func() {
+		// 清理临时文件：失败时已通过 Rename 移走，此处为幂等兜底，错误可忽略
 		_ = os.Remove(tmpName)
 	}()
 
 	if _, err := tmp.Write(data); err != nil {
+		// 写入失败后关闭临时文件以便 Remove 清理；关闭错误无意义
 		_ = tmp.Close()
 		return fmt.Errorf("写入临时文件失败: %w", err)
 	}
@@ -259,14 +261,17 @@ func replaceExecutable(dest string, data []byte) error {
 
 	if runtime.GOOS == "windows" {
 		backup := dest + ".old"
+		// 清理可能残留的旧备份；不存在时 Remove 报错可忽略
 		_ = os.Remove(backup)
 		if err := os.Rename(dest, backup); err != nil {
 			return fmt.Errorf("Windows 下替换二进制失败，请关闭占用进程后重试: %w", err)
 		}
 		if err := os.Rename(tmpName, dest); err != nil {
+			// 回滚：把备份恢复回去；失败只能忽略，原二进制已丢失
 			_ = os.Rename(backup, dest)
 			return fmt.Errorf("安装新版本失败: %w", err)
 		}
+		// 成胜后清理备份；失败不影响结果
 		_ = os.Remove(backup)
 		return nil
 	}
@@ -276,4 +281,3 @@ func replaceExecutable(dest string, data []byte) error {
 	}
 	return nil
 }
-

@@ -8,8 +8,8 @@ import (
 )
 
 type cursorHooksFile struct {
-	Version int                            `json:"version"`
-	Hooks   map[string][]cursorHookEntry   `json:"hooks"`
+	Version int                          `json:"version"`
+	Hooks   map[string][]cursorHookEntry `json:"hooks"`
 }
 
 type cursorHookEntry struct {
@@ -22,8 +22,8 @@ type settingsFile struct {
 }
 
 type matcherGroup struct {
-	Matcher string          `json:"matcher,omitempty"`
-	Hooks   []settingsHook  `json:"hooks"`
+	Matcher string         `json:"matcher,omitempty"`
+	Hooks   []settingsHook `json:"hooks"`
 }
 
 type settingsHook struct {
@@ -37,7 +37,7 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return err
+			return fmt.Errorf("读取 Cursor hooks.json 失败: %w", err)
 		}
 		cfg = cursorHooksFile{Version: 1, Hooks: map[string][]cursorHookEntry{}}
 	} else {
@@ -77,12 +77,15 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码 hooks.json 失败: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return err
+		return fmt.Errorf("创建 hooks 目录失败: %w", err)
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("写入 hooks.json 失败: %w", err)
+	}
+	return nil
 }
 
 func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
@@ -90,7 +93,7 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			return err
+			return fmt.Errorf("读取 settings.json 失败: %w", err)
 		}
 	} else {
 		if err := json.Unmarshal(data, &root); err != nil {
@@ -145,12 +148,15 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 	root["hooks"] = hooks.Hooks
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码 settings.json 失败: %w", err)
 	}
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return err
+		return fmt.Errorf("创建 settings 目录失败: %w", err)
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("写入 settings.json 失败: %w", err)
+	}
+	return nil
 }
 
 func UnmergeCursorHooks(configPath string) error {
@@ -159,11 +165,11 @@ func UnmergeCursorHooks(configPath string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("读取 Cursor hooks.json 失败: %w", err)
 	}
 	var cfg cursorHooksFile
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return err
+		return fmt.Errorf("解析 Cursor hooks.json 失败: %w", err)
 	}
 	for event, list := range cfg.Hooks {
 		filtered := make([]cursorHookEntry, 0, len(list))
@@ -181,9 +187,12 @@ func UnmergeCursorHooks(configPath string) error {
 	}
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码 hooks.json 失败: %w", err)
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("写入 hooks.json 失败: %w", err)
+	}
+	return nil
 }
 
 func UnmergeSettingsHooks(configPath string) error {
@@ -192,11 +201,11 @@ func UnmergeSettingsHooks(configPath string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("读取 settings.json 失败: %w", err)
 	}
 	root := map[string]any{}
 	if err := json.Unmarshal(data, &root); err != nil {
-		return err
+		return fmt.Errorf("解析 settings.json 失败: %w", err)
 	}
 	raw, ok := root["hooks"]
 	if !ok {
@@ -205,7 +214,7 @@ func UnmergeSettingsHooks(configPath string) error {
 	b, _ := json.Marshal(raw)
 	var hooks settingsFile
 	if err := json.Unmarshal(b, &hooks); err != nil {
-		return err
+		return fmt.Errorf("解析 hooks 字段失败: %w", err)
 	}
 	for event, groups := range hooks.Hooks {
 		var kept []matcherGroup
@@ -236,7 +245,10 @@ func UnmergeSettingsHooks(configPath string) error {
 	}
 	out, err := json.MarshalIndent(root, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码 settings.json 失败: %w", err)
 	}
-	return os.WriteFile(configPath, append(out, '\n'), 0o644)
+	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
+		return fmt.Errorf("写入 settings.json 失败: %w", err)
+	}
+	return nil
 }

@@ -30,11 +30,11 @@ type UserConfig struct {
 }
 
 type registryResponse struct {
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	Version      string `json:"version"`
-	DownloadURL  string `json:"download_url"`
-	Checksum     string `json:"checksum"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	Version     string `json:"version"`
+	DownloadURL string `json:"download_url"`
+	Checksum    string `json:"checksum"`
 }
 
 func LoadUserConfig() (*UserConfig, error) {
@@ -47,11 +47,11 @@ func LoadUserConfig() (*UserConfig, error) {
 		if os.IsNotExist(err) {
 			return &UserConfig{}, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("读取用户配置失败: %w", err)
 	}
 	var cfg UserConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析用户配置失败: %w", err)
 	}
 	return &cfg, nil
 }
@@ -83,7 +83,7 @@ func ResolveRegistry(name string, cfg *UserConfig) (string, error) {
 	}
 	var meta registryResponse
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return "", err
+		return "", fmt.Errorf("解析 Registry 响应失败: %w", err)
 	}
 	cache, err := CacheDir(cfg)
 	if err != nil {
@@ -94,19 +94,19 @@ func ResolveRegistry(name string, cfg *UserConfig) (string, error) {
 		return dest, nil
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return "", err
+		return "", fmt.Errorf("创建缓存目录失败: %w", err)
 	}
 	zipPath := filepath.Join(cache, "registry", name, meta.Version+".zip")
 	if err := downloadFile(meta.DownloadURL, zipPath); err != nil {
-		return "", err
+		return "", fmt.Errorf("下载归档失败: %w", err)
 	}
 	if meta.Checksum != "" {
 		if err := verifyChecksum(zipPath, meta.Checksum); err != nil {
-			return "", err
+			return "", fmt.Errorf("校验和不匹配: %w", err)
 		}
 	}
 	if err := unzip(zipPath, dest); err != nil {
-		return "", err
+		return "", fmt.Errorf("解压归档失败: %w", err)
 	}
 	return dest, nil
 }
@@ -125,7 +125,7 @@ func expandHome(path string) (string, error) {
 func downloadFile(url, dest string) error {
 	resp, err := http.Get(url)
 	if err != nil {
-		return err
+		return fmt.Errorf("请求下载失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -133,11 +133,13 @@ func downloadFile(url, dest string) error {
 	}
 	f, err := os.Create(dest)
 	if err != nil {
-		return err
+		return fmt.Errorf("创建下载文件失败: %w", err)
 	}
 	defer f.Close()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	if _, err := io.Copy(f, resp.Body); err != nil {
+		return fmt.Errorf("写入下载文件失败: %w", err)
+	}
+	return nil
 }
 
 func verifyChecksum(path, checksum string) error {
@@ -147,7 +149,7 @@ func verifyChecksum(path, checksum string) error {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("读取校验文件失败: %w", err)
 	}
 	sum := sha256.Sum256(data)
 	got := hex.EncodeToString(sum[:])
@@ -160,7 +162,7 @@ func verifyChecksum(path, checksum string) error {
 func unzip(src, dest string) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开 zip 失败: %w", err)
 	}
 	defer r.Close()
 	for _, f := range r.File {
@@ -170,27 +172,27 @@ func unzip(src, dest string) error {
 		}
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(target, 0o755); err != nil {
-				return err
+				return fmt.Errorf("创建目录失败: %w", err)
 			}
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-			return err
+			return fmt.Errorf("创建父目录失败: %w", err)
 		}
 		rc, err := f.Open()
 		if err != nil {
-			return err
+			return fmt.Errorf("打开 zip 条目失败: %w", err)
 		}
 		out, err := os.Create(target)
 		if err != nil {
 			rc.Close()
-			return err
+			return fmt.Errorf("创建文件失败: %w", err)
 		}
 		_, err = io.Copy(out, rc)
 		out.Close()
 		rc.Close()
 		if err != nil {
-			return err
+			return fmt.Errorf("解压文件失败: %w", err)
 		}
 	}
 	return nil

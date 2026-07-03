@@ -23,10 +23,10 @@ type SidecarIDE struct {
 }
 
 type Sidecar struct {
-	Name    string              `json:"name"`
-	Version string              `json:"version"`
-	Scope   string              `json:"scope"`
-	WorkBin string              `json:"work_bin"`
+	Name    string                `json:"name"`
+	Version string                `json:"version"`
+	Scope   string                `json:"scope"`
+	WorkBin string                `json:"work_bin"`
 	IDEs    map[string]SidecarIDE `json:"ides"`
 }
 
@@ -48,11 +48,11 @@ func LoadSidecar(name string) (*Sidecar, error) {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("未找到 hooks 安装记录: %s", name)
 		}
-		return nil, err
+		return nil, fmt.Errorf("读取 sidecar 文件失败: %w", err)
 	}
 	var sc Sidecar
 	if err := json.Unmarshal(data, &sc); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析 sidecar 文件失败: %w", err)
 	}
 	return &sc, nil
 }
@@ -64,9 +64,12 @@ func SaveSidecar(sc *Sidecar) error {
 	}
 	data, err := json.MarshalIndent(sc, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码 sidecar 失败: %w", err)
 	}
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("写入 sidecar 文件失败: %w", err)
+	}
+	return nil
 }
 
 func RemoveSidecar(name string) error {

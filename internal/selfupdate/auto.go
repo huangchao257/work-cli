@@ -52,9 +52,11 @@ func TryAuto(ctx context.Context, opts AutoOptions) (*AutoResult, error) {
 	updater := NewUpdater(opts.CurrentVersion)
 	res, err := updater.Upgrade(ctx, UpgradeOptions{})
 	if err != nil {
+		// 记录"已检查"状态：失败时也标记，避免短期内重复请求；保存失败不影响主流程
 		_ = markChecked()
 		return nil, err
 	}
+	// 同上：标记检查时间，失败时下次启动会重复检查，无副作用
 	_ = markChecked()
 
 	out := &AutoResult{

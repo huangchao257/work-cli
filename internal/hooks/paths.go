@@ -115,10 +115,10 @@ func commandPathForIDE(ide, scope, kitName, scriptName string) (string, error) {
 
 func writeExecutable(path, content string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
+		return fmt.Errorf("创建脚本目录失败: %w", err)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		return err
+		return fmt.Errorf("写入脚本文件失败: %w", err)
 	}
 	return nil
 }

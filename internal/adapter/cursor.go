@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -55,21 +56,23 @@ func (c *cursorAdapter) Uninstall(ctx context.Context, rec state.BundleRecord, s
 	for _, id := range rec.Resources.Skills {
 		dir, err := platform.SkillDir(platform.IDECursor, string(scope), id)
 		if err != nil {
-			return err
+			return fmt.Errorf("定位 skill 目录失败: %w", err)
 		}
+		// 清理 skill 目录：失败不阻断卸载，残留文件可下次清理
 		_ = os.RemoveAll(dir)
 	}
 	for _, id := range rec.Resources.Rules {
 		path, err := platform.RuleFile(platform.IDECursor, string(scope), id)
 		if err != nil {
-			return err
+			return fmt.Errorf("定位 rule 文件失败: %w", err)
 		}
+		// 移除 rule 文件：失败不阻断卸载
 		_ = os.Remove(path)
 	}
 	if len(rec.Resources.MCP) > 0 {
 		path, err := platform.MCPConfigPath(platform.IDECursor, string(scope))
 		if err != nil {
-			return err
+			return fmt.Errorf("定位 MCP 配置失败: %w", err)
 		}
 		data, _ := os.ReadFile(path)
 		out := data
@@ -77,9 +80,10 @@ func (c *cursorAdapter) Uninstall(ctx context.Context, rec state.BundleRecord, s
 		for _, id := range rec.Resources.MCP {
 			out, err2 = RemoveMCPServer(out, id)
 			if err2 != nil {
-				return err2
+				return fmt.Errorf("移除 MCP server %s 失败: %w", id, err2)
 			}
 		}
+		// 写回 MCP 配置：失败不阻断卸载，配置可能已不存在
 		_ = os.WriteFile(path, out, 0o644)
 	}
 	return nil

@@ -30,7 +30,7 @@ type ReportResult struct {
 func Report(in ReportInput) (ReportResult, error) {
 	raw, err := io.ReadAll(in.Stdin)
 	if err != nil {
-		return ReportResult{}, err
+		return ReportResult{}, fmt.Errorf("读取 stdin 失败: %w", err)
 	}
 
 	cfg, _ := LoadTelemetryConfig()
@@ -39,7 +39,7 @@ func Report(in ReportInput) (ReportResult, error) {
 
 	payload, err := RedactPayload(raw, redactFields)
 	if err != nil {
-		return ReportResult{}, err
+		return ReportResult{}, fmt.Errorf("脱敏 payload 失败: %w", err)
 	}
 
 	username := os.Getenv("USER")
@@ -73,17 +73,18 @@ func Report(in ReportInput) (ReportResult, error) {
 	}
 
 	if err := AppendQueue(rec); err != nil {
-		// still passthrough stdin on queue failure
+		// 队列写入失败时仍透传 stdin，避免阻断 IDE 流程
 		_, _ = in.Stdout.Write(raw)
-		return ReportResult{}, err
+		return ReportResult{}, fmt.Errorf("写入事件队列失败: %w", err)
 	}
 
 	if in.TriggerSync && cfg.Enabled && cfg.URL != "" {
+		// 异步触发同步：fire-and-forget，goroutine 内的错误无法返回调用方
 		go func() { _ = Sync(cfg) }()
 	}
 
 	if _, err := in.Stdout.Write(raw); err != nil {
-		return ReportResult{EventID: rec.EventID, Record: rec}, err
+		return ReportResult{EventID: rec.EventID, Record: rec}, fmt.Errorf("回写 stdout 失败: %w", err)
 	}
 	return ReportResult{EventID: rec.EventID, Record: rec}, nil
 }

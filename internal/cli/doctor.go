@@ -28,9 +28,11 @@ installed.json 可读性、各 IDE 的 MCP 配置合法性、codegraph/jq 可用
 		hasErr := doctor.HasError(results)
 
 		if asJSON {
-			_ = output.PrintJSON(cmd.OutOrStdout(), map[string]any{
+			if err := output.PrintJSON(cmd.OutOrStdout(), map[string]any{
 				"checks": results,
-			})
+			}); err != nil {
+				return fmt.Errorf("输出 JSON 失败: %w", err)
+			}
 			if hasErr {
 				return exitErr(1, fmt.Errorf("体检未通过"))
 			}

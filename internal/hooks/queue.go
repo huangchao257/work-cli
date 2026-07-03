@@ -3,6 +3,7 @@ package hooks
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,17 +27,17 @@ type EventRecord struct {
 }
 
 type QueueEntry struct {
-	Event       EventRecord `json:"event"`
-	UploadedAt  *time.Time  `json:"uploaded_at"`
-	RetryCount  int         `json:"retry_count"`
-	LastError   string      `json:"last_error"`
-	RetryAfter  *time.Time  `json:"retry_after,omitempty"`
+	Event      EventRecord `json:"event"`
+	UploadedAt *time.Time  `json:"uploaded_at"`
+	RetryCount int         `json:"retry_count"`
+	LastError  string      `json:"last_error"`
+	RetryAfter *time.Time  `json:"retry_after,omitempty"`
 }
 
 type SyncState struct {
-	LastSync      *time.Time `json:"last_sync"`
-	PendingCount  int        `json:"pending_count"`
-	LastError     string     `json:"last_error"`
+	LastSync     *time.Time `json:"last_sync"`
+	PendingCount int        `json:"pending_count"`
+	LastError    string     `json:"last_error"`
 }
 
 func QueuePath() (string, error) {
@@ -63,15 +64,15 @@ func AppendQueue(rec EventRecord) error {
 	entry := QueueEntry{Event: rec}
 	data, err := json.Marshal(entry)
 	if err != nil {
-		return err
+		return fmt.Errorf("编码队列条目失败: %w", err)
 	}
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return fmt.Errorf("打开队列文件失败: %w", err)
 	}
 	defer f.Close()
 	if _, err := f.Write(append(data, '\n')); err != nil {
-		return err
+		return fmt.Errorf("写入队列文件失败: %w", err)
 	}
 	return updatePendingCount()
 }
@@ -86,7 +87,7 @@ func ReadPending() ([]QueueEntry, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, err
+		return nil, fmt.Errorf("读取队列文件失败: %w", err)
 	}
 	var out []QueueEntry
 	sc := bufio.NewScanner(strings.NewReader(string(data)))
@@ -120,7 +121,7 @@ func MarkUploaded(eventIDs map[string]bool) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return err
+		return fmt.Errorf("读取队列文件失败: %w", err)
 	}
 	now := time.Now().UTC()
 	var lines []byte
@@ -143,10 +144,10 @@ func MarkUploaded(eventIDs map[string]bool) error {
 		lines = append(lines, append(b, '\n')...)
 	}
 	if err := sc.Err(); err != nil {
-		return err
+		return fmt.Errorf("扫描队列文件失败: %w", err)
 	}
 	if err := os.WriteFile(path, lines, 0o600); err != nil {
-		return err
+		return fmt.Errorf("写入队列文件失败: %w", err)
 	}
 	return updatePendingCount()
 }
@@ -158,7 +159,7 @@ func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("读取队列文件失败: %w", err)
 	}
 	var lines []byte
 	sc := bufio.NewScanner(strings.NewReader(string(data)))
@@ -178,7 +179,10 @@ func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
 		b, _ := json.Marshal(e)
 		lines = append(lines, append(b, '\n')...)
 	}
-	return os.WriteFile(path, lines, 0o600)
+	if err := os.WriteFile(path, lines, 0o600); err != nil {
+		return fmt.Errorf("写入队列文件失败: %w", err)
+	}
+	return nil
 }
 
 func LoadSyncState() (SyncState, error) {
@@ -191,11 +195,11 @@ func LoadSyncState() (SyncState, error) {
 		if os.IsNotExist(err) {
 			return SyncState{}, nil
 		}
-		return SyncState{}, err
+		return SyncState{}, fmt.Errorf("读取同步状态文件失败: %w", err)
 	}
 	var st SyncState
 	if err := json.Unmarshal(data, &st); err != nil {
-		return SyncState{}, err
+		return SyncState{}, fmt.Errorf("解析同步状态文件失败: %w", err)
 	}
 	return st, nil
 }
@@ -207,15 +211,18 @@ func SaveSyncState(st SyncState) error {
 	}
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("编码同步状态失败: %w", err)
 	}
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("写入同步状态文件失败: %w", err)
+	}
+	return nil
 }
 
 func updatePendingCount() error {
 	pending, err := ReadPending()
 	if err != nil {
-		return err
+		return fmt.Errorf("统计待上报条目失败: %w", err)
 	}
 	st, _ := LoadSyncState()
 	st.PendingCount = len(pending)

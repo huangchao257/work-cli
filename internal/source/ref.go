@@ -57,7 +57,7 @@ func ValidateInstallName(name string) error {
 	}
 	cfg, err := LoadUserConfig()
 	if err != nil {
-		return err
+		return fmt.Errorf("加载用户配置失败: %w", err)
 	}
 	if cfg != nil && strings.TrimSpace(cfg.Registry.URL) != "" {
 		return nil

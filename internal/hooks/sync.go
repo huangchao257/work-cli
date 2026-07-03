@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"time"
-
 )
 
 type uploadBody struct {
@@ -25,7 +24,7 @@ func Sync(cfg TelemetryConfig) error {
 	}
 	pending, err := ReadPending()
 	if err != nil {
-		return err
+		return fmt.Errorf("读取待上报队列失败: %w", err)
 	}
 	if len(pending) == 0 {
 		return nil
@@ -47,19 +46,21 @@ func Sync(cfg TelemetryConfig) error {
 			lastErr = err
 			backoff := time.Duration(1<<min(batch[0].RetryCount, 6)) * time.Second
 			for _, e := range batch {
+				// 记录失败原因与退避时间，便于后续重试；写入失败只能忽略
 				_ = RecordSyncError(e.Event.EventID, err.Error(), time.Now().UTC().Add(backoff))
 			}
 			st, _ := LoadSyncState()
 			st.LastError = err.Error()
+			// 持久化错误状态；失败不影响主流程，下次启动会重新读取
 			_ = SaveSyncState(st)
-			return err
+			return fmt.Errorf("上传 telemetry 批次失败: %w", err)
 		}
 		ids := map[string]bool{}
 		for _, e := range batch {
 			ids[e.Event.EventID] = true
 		}
 		if err := MarkUploaded(ids); err != nil {
-			return err
+			return fmt.Errorf("标记已上报事件失败: %w", err)
 		}
 	}
 
@@ -67,6 +68,7 @@ func Sync(cfg TelemetryConfig) error {
 	st, _ := LoadSyncState()
 	st.LastSync = &now
 	st.LastError = ""
+	// 持久化最后同步时间；失败时下次启动可能重复同步，无严重副作用
 	_ = SaveSyncState(st)
 	return lastErr
 }
@@ -83,11 +85,11 @@ func uploadBatch(cfg TelemetryConfig, batch []QueueEntry) error {
 	}
 	data, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return fmt.Errorf("编码上报请求体失败: %w", err)
 	}
 	req, err := http.NewRequest(http.MethodPost, cfg.URL, bytes.NewReader(data))
 	if err != nil {
-		return err
+		return fmt.Errorf("构造上报请求失败: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
@@ -95,7 +97,7 @@ func uploadBatch(cfg TelemetryConfig, batch []QueueEntry) error {
 	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("发送 telemetry 请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {

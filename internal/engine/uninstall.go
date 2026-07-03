@@ -27,7 +27,7 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 	case "hooks":
 		if !dryRun {
 			if err := uninstallHooks(ctx, rec, false); err != nil {
-				return Result{}, err
+				return Result{}, fmt.Errorf("卸载 hooks 失败: %w", err)
 			}
 		}
 	case "cli":
@@ -42,7 +42,7 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 						commands = append(commands, cmd)
 						if !dryRun {
 							if err := runInDir(ctx, pkgDir, cmd); err != nil {
-								return Result{}, err
+								return Result{}, fmt.Errorf("执行卸载命令失败: %w", err)
 							}
 						}
 					}
@@ -61,7 +61,7 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 					continue
 				}
 				if err := a.Uninstall(ctx, *rec, scopeVal); err != nil {
-					return Result{}, err
+					return Result{}, fmt.Errorf("从 %s 卸载失败: %w", ide, err)
 				}
 			}
 		}
@@ -69,7 +69,7 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 
 	if !dryRun {
 		if err := store.Remove(rec.Name, rec.Scope); err != nil {
-			return Result{}, err
+			return Result{}, fmt.Errorf("移除安装记录失败: %w", err)
 		}
 	}
 
@@ -88,11 +88,11 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 func findRecord(name, scope string) (*state.BundleRecord, *state.Store, error) {
 	statePath, err := platform.WorkStatePath(scope)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("定位状态文件路径失败: %w", err)
 	}
 	store, err := state.Open(statePath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	rec, err := store.Find(name, scope)
 	if err == nil {
@@ -101,11 +101,11 @@ func findRecord(name, scope string) (*state.BundleRecord, *state.Store, error) {
 	if scope != "user" {
 		statePath, err = platform.WorkStatePath("user")
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("定位用户状态文件路径失败: %w", err)
 		}
 		store, err = state.Open(statePath)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("打开用户状态文件失败: %w", err)
 		}
 		rec, err = store.Find(name, "user")
 	}
