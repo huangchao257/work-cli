@@ -49,3 +49,15 @@ func CheckRequiredEnvVars(env []EnvVar) []string {
 	}
 	return missing
 }
+
+// RequiredEnvNames 返回标记为 required 的环境变量名称列表。
+// 共享给 engine 包用于生成缺失环境变量的报错信息。
+func RequiredEnvNames(env []EnvVar) []string {
+	var names []string
+	for _, e := range env {
+		if e.Required {
+			names = append(names, e.Name)
+		}
+	}
+	return names
+}

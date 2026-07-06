@@ -4,11 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/huangchao257/work-cli/internal/bundle"
 	"github.com/huangchao257/work-cli/internal/installer"
-	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/state"
 )
 
@@ -17,16 +15,8 @@ func installCLI(ctx context.Context, pkgDir string, opts Options, refRaw string)
 	if err != nil {
 		return Result{}, fmt.Errorf("解析 installer.yaml 失败: %w", err)
 	}
-	if missing := bundle.CheckRequiredEnvVars(manifest.Env); len(missing) > 0 {
-		var b strings.Builder
-		b.WriteString("缺少必需的环境变量：")
-		b.WriteString(strings.Join(missing, ", "))
-		b.WriteString("\n")
-		for _, name := range missing {
-			b.WriteString(platform.EnvSetHint(name))
-			b.WriteString("\n")
-		}
-		return Result{}, fmt.Errorf("%s", b.String())
+	if err := checkMissingEnv(bundle.RequiredEnvNames(manifest.Env)); err != nil {
+		return Result{}, err
 	}
 
 	cmd, err := installer.ResolveCommand(manifest.Install)
@@ -69,16 +59,8 @@ func installCLI(ctx context.Context, pkgDir string, opts Options, refRaw string)
 		Ref:            refRaw,
 		InstallCommand: cmd,
 	}
-	statePath, err := platform.WorkStatePath("user")
-	if err != nil {
-		return Result{}, fmt.Errorf("定位状态文件路径失败: %w", err)
-	}
-	store, err := state.Open(statePath)
-	if err != nil {
-		return Result{}, fmt.Errorf("打开状态文件失败: %w", err)
-	}
-	if err := store.Upsert(rec); err != nil {
-		return Result{}, fmt.Errorf("写入安装记录失败: %w", err)
+	if err := saveStateRecord(rec, "user"); err != nil {
+		return Result{}, err
 	}
 
 	return Result{

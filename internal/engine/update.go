@@ -104,7 +104,7 @@ func updateCLI(ctx context.Context, ref source.Ref, rec state.BundleRecord, dryR
 		return Result{}, err
 	}
 	if dryRun {
-		return Result{Success: true, Name: rec.Name, Kind: "cli", Commands: []string{cmd}, DryRun: true}, nil
+		return Result{Success: true, Name: rec.Name, Kind: "cli", Version: rec.Version, Scope: "user", Commands: []string{cmd}, DryRun: true}, nil
 	}
 	if err := runInDir(ctx, pkgDir, cmd); err != nil {
 		return Result{}, err
@@ -114,5 +114,5 @@ func updateCLI(ctx context.Context, ref source.Ref, rec state.BundleRecord, dryR
 	statePath, _ := platform.WorkStatePath("user")
 	store, _ := state.Open(statePath)
 	_ = store.Upsert(rec)
-	return Result{Success: true, Name: rec.Name, Kind: "cli", Version: manifest.Version, Commands: []string{cmd}}, nil
+	return Result{Success: true, Name: rec.Name, Kind: "cli", Version: manifest.Version, Scope: "user", Commands: []string{cmd}, DryRun: false}, nil
 }

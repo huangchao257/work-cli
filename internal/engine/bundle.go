@@ -5,7 +5,6 @@ package engine
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/huangchao257/work-cli/internal/adapter"
 	"github.com/huangchao257/work-cli/internal/bundle"
@@ -19,16 +18,8 @@ func installBundle(ctx context.Context, pkgDir string, opts Options, refRaw stri
 	if err != nil {
 		return Result{}, err
 	}
-	if missing := bundle.CheckRequiredEnv(manifest); len(missing) > 0 {
-		var b strings.Builder
-		b.WriteString("缺少必需的环境变量：")
-		b.WriteString(strings.Join(missing, ", "))
-		b.WriteString("\n")
-		for _, name := range missing {
-			b.WriteString(platform.EnvSetHint(name))
-			b.WriteString("\n")
-		}
-		return Result{}, fmt.Errorf("%s", b.String())
+	if err := checkMissingEnv(bundle.RequiredEnvNames(manifest.Env)); err != nil {
+		return Result{}, err
 	}
 
 	targetIDEs := manifest.Targets
@@ -132,15 +123,7 @@ func installBundle(ctx context.Context, pkgDir string, opts Options, refRaw stri
 		},
 	}
 	if !opts.DryRun {
-		statePath, err := platform.WorkStatePath(opts.Scope)
-		if err != nil {
-			return Result{}, err
-		}
-		store, err := state.Open(statePath)
-		if err != nil {
-			return Result{}, err
-		}
-		if err := store.Upsert(rec); err != nil {
+		if err := saveStateRecord(rec, opts.Scope); err != nil {
 			return Result{}, err
 		}
 		if err := runBundlePostInstall(ctx, manifest, opts); err != nil {

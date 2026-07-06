@@ -43,6 +43,36 @@ func PrintHuman(w io.Writer, res engine.Result) error {
 	return nil
 }
 
+func PrintHumanUninstall(w io.Writer, res engine.Result) error {
+	if res.DryRun {
+		fmt.Fprintf(w, "（预览模式，未实际执行）\n")
+	}
+	for _, warn := range res.Warnings {
+		fmt.Fprintf(w, "⚠ %s\n", warn)
+	}
+	if res.Kind == "cli" {
+		if len(res.Commands) > 0 {
+			if res.DryRun {
+				fmt.Fprintf(w, "将执行卸载命令：%s\n", res.Commands[0])
+			} else {
+				fmt.Fprintf(w, "✓ 已卸载 %s（已执行：%s）\n", res.Name, res.Commands[0])
+			}
+		} else {
+			fmt.Fprintf(w, "✓ 已卸载 %s\n", res.Name)
+		}
+		return nil
+	}
+	if res.Success {
+		ides := strings.Join(res.InstalledIDEs, ", ")
+		if ides != "" {
+			fmt.Fprintf(w, "✓ 已卸载 %s（范围：%s，目标 IDE：%s）\n", res.Name, scopeLabel(res.Scope), ides)
+		} else {
+			fmt.Fprintf(w, "✓ 已卸载 %s（范围：%s）\n", res.Name, scopeLabel(res.Scope))
+		}
+	}
+	return nil
+}
+
 func PrintHumanList(w io.Writer, res engine.ListResult) error {
 	if len(res.Items) == 0 {
 		fmt.Fprintln(w, "暂无已安装项")

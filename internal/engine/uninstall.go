@@ -22,6 +22,7 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 
 	var commands []string
 	warnings := []string{}
+	installedIDEs := rec.IDEs
 
 	switch rec.Kind {
 	case "hooks":
@@ -74,14 +75,15 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 	}
 
 	return Result{
-		Success:  true,
-		Name:     rec.Name,
-		Kind:     rec.Kind,
-		Version:  rec.Version,
-		Scope:    rec.Scope,
-		Commands: commands,
-		Warnings: warnings,
-		DryRun:   dryRun,
+		Success:       true,
+		Name:          rec.Name,
+		Kind:          rec.Kind,
+		Version:       rec.Version,
+		Scope:         rec.Scope,
+		InstalledIDEs: installedIDEs,
+		Commands:      commands,
+		Warnings:      warnings,
+		DryRun:        dryRun,
 	}, nil
 }
 

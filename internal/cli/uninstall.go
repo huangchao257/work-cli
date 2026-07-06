@@ -28,7 +28,7 @@ var uninstallCmd = &cobra.Command{
 		if asJSON {
 			return output.PrintInstallJSON(cmd.OutOrStdout(), res)
 		}
-		return output.PrintHuman(cmd.OutOrStdout(), res)
+		return output.PrintHumanUninstall(cmd.OutOrStdout(), res)
 	},
 }
 
