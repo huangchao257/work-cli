@@ -152,7 +152,6 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 	return result, nil
 }
 
-
 func downloadAsset(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	if client == nil {
 		client = http.DefaultClient
