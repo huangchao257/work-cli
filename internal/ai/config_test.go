@@ -145,3 +145,37 @@ ai:
 		t.Fatalf("len = %d, want 2", len(names))
 	}
 }
+
+// AI 配置加载基准测试 — 衡量 YAML 解析 + 环境变量展开的性能。
+
+func BenchmarkLoadModelConfig(b *testing.B) {
+	home := b.TempDir()
+	b.Setenv("HOME", home)
+	b.Setenv("TEST_AI_KEY", "sk-bench-key-12345")
+	p := filepath.Join(home, ".work", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		b.Fatal(err)
+	}
+	content := `
+ai:
+  models:
+    default:
+      provider: openai
+      url: https://api.openai.com/v1/chat/completions
+      api_key: ${TEST_AI_KEY}
+      model: gpt-4o
+      timeout: 120s
+      max_tokens: 4096
+`
+	if err := os.WriteFile(p, []byte(content), 0600); err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	for range b.N {
+		_, err := LoadModelConfig("")
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+}
