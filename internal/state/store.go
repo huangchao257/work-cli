@@ -159,7 +159,7 @@ func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 	if kindFilter == "" {
 		return file.Bundles, nil
 	}
-	out := make([]BundleRecord, 0)
+	out := make([]BundleRecord, 0, len(file.Bundles))
 	for _, b := range file.Bundles {
 		if b.Kind == kindFilter {
 			out = append(out, b)

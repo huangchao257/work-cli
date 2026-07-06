@@ -2,11 +2,11 @@ package hooks
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -90,7 +90,7 @@ func ReadPending() ([]QueueEntry, error) {
 		return nil, fmt.Errorf("读取队列文件失败: %w", err)
 	}
 	var out []QueueEntry
-	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	sc := bufio.NewScanner(bytes.NewReader(data))
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -112,20 +112,67 @@ func ReadPending() ([]QueueEntry, error) {
 }
 
 func MarkUploaded(eventIDs map[string]bool) error {
+	now := time.Now().UTC()
+	return rewriteQueue(func(e *QueueEntry) (rewrite bool) {
+		if eventIDs[e.Event.EventID] {
+			e.UploadedAt = &now
+			e.LastError = ""
+			return true
+		}
+		return false
+	})
+}
+
+func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
+	return rewriteQueue(func(e *QueueEntry) (rewrite bool) {
+		if e.Event.EventID == eventID {
+			e.RetryCount++
+			e.LastError = msg
+			t := retryAfter
+			e.RetryAfter = &t
+			return true
+		}
+		return false
+	})
+}
+
+// rewriteQueue 逐行处理队列文件，通过临时文件+rename实现原子写入，
+// 避免将整个文件读入内存。只有被 mutate 修改的行才会重新marshal。
+func rewriteQueue(mutate func(*QueueEntry) bool) error {
 	path, err := QueuePath()
 	if err != nil {
 		return err
 	}
-	data, err := os.ReadFile(path)
+
+	// 打开原文件用于读取
+	in, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
-		return fmt.Errorf("读取队列文件失败: %w", err)
+		return fmt.Errorf("打开队列文件失败: %w", err)
 	}
-	now := time.Now().UTC()
-	var lines []byte
-	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	defer in.Close()
+
+	// 在同目录创建临时文件用于写入
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".queue-*.jsonl")
+	if err != nil {
+		return fmt.Errorf("创建临时队列文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	var modified bool
+	sc := bufio.NewScanner(in)
+	// 增大scanner缓冲区以处理长行
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -133,59 +180,44 @@ func MarkUploaded(eventIDs map[string]bool) error {
 		}
 		var e QueueEntry
 		if err := json.Unmarshal(line, &e); err != nil {
-			lines = append(lines, append(line, '\n')...)
+			// 无法解析的行原样保留
+			if _, werr := tmp.Write(line); werr != nil {
+				return fmt.Errorf("写入临时队列文件失败: %w", werr)
+			}
+			if _, werr := tmp.Write([]byte{'\n'}); werr != nil {
+				return fmt.Errorf("写入临时队列文件失败: %w", werr)
+			}
 			continue
 		}
-		if eventIDs[e.Event.EventID] {
-			e.UploadedAt = &now
-			e.LastError = ""
+		if mutate(&e) {
+			modified = true
 		}
-		b, _ := json.Marshal(e)
-		lines = append(lines, append(b, '\n')...)
+		b, err := json.Marshal(e)
+		if err != nil {
+			return fmt.Errorf("编码队列条目失败: %w", err)
+		}
+		if _, werr := tmp.Write(b); werr != nil {
+			return fmt.Errorf("写入临时队列文件失败: %w", werr)
+		}
+		if _, werr := tmp.Write([]byte{'\n'}); werr != nil {
+			return fmt.Errorf("写入临时队列文件失败: %w", werr)
+		}
 	}
 	if err := sc.Err(); err != nil {
 		return fmt.Errorf("扫描队列文件失败: %w", err)
 	}
-	if err := os.WriteFile(path, lines, 0o600); err != nil {
-		return fmt.Errorf("写入队列文件失败: %w", err)
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时队列文件失败: %w", err)
 	}
+	if !modified {
+		cleanup = true
+		return nil
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子替换队列文件失败: %w", err)
+	}
+	cleanup = false
 	return updatePendingCount()
-}
-
-func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
-	path, err := QueuePath()
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("读取队列文件失败: %w", err)
-	}
-	var lines []byte
-	sc := bufio.NewScanner(strings.NewReader(string(data)))
-	for sc.Scan() {
-		line := sc.Bytes()
-		var e QueueEntry
-		if err := json.Unmarshal(line, &e); err != nil {
-			lines = append(lines, append(line, '\n')...)
-			continue
-		}
-		if e.Event.EventID == eventID {
-			e.RetryCount++
-			e.LastError = msg
-			t := retryAfter
-			e.RetryAfter = &t
-		}
-		b, _ := json.Marshal(e)
-		lines = append(lines, append(b, '\n')...)
-	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("读取队列行失败: %w", err)
-	}
-	if err := os.WriteFile(path, lines, 0o600); err != nil {
-		return fmt.Errorf("写入队列文件失败: %w", err)
-	}
-	return nil
 }
 
 func LoadSyncState() (SyncState, error) {

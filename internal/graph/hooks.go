@@ -39,7 +39,7 @@ func setupCursorHook(projectRoot, hookScript string) error {
 		cfg.Version = 1
 	}
 
-	filtered := make([]cursorHookEntry, 0)
+	filtered := make([]cursorHookEntry, 0, len(cfg.Hooks["afterFileEdit"]))
 	for _, e := range cfg.Hooks["afterFileEdit"] {
 		if strings.Contains(e.Command, marker) || strings.Contains(e.Command, "on-file-edit.sh") {
 			continue

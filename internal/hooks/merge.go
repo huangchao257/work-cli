@@ -111,9 +111,9 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 	}
 
 	for event, groups := range hooks.Hooks {
-		var kept []matcherGroup
+		kept := make([]matcherGroup, 0, len(groups))
 		for _, g := range groups {
-			var inner []settingsHook
+			inner := make([]settingsHook, 0, len(g.Hooks))
 			for _, h := range g.Hooks {
 				if IsWorkManagedCommand(h.Command) {
 					continue
@@ -217,9 +217,9 @@ func UnmergeSettingsHooks(configPath string) error {
 		return fmt.Errorf("解析 hooks 字段失败: %w", err)
 	}
 	for event, groups := range hooks.Hooks {
-		var kept []matcherGroup
+		kept := make([]matcherGroup, 0, len(groups))
 		for _, g := range groups {
-			var inner []settingsHook
+			inner := make([]settingsHook, 0, len(g.Hooks))
 			for _, h := range g.Hooks {
 				if IsWorkManagedCommand(h.Command) {
 					continue
