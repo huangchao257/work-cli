@@ -2,12 +2,11 @@ package hooks
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
-	"time"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 const workTelemetryDir = "work-telemetry"
@@ -52,10 +51,10 @@ func LoadSidecar(name string) (*Sidecar, error) {
 		return nil, fmt.Errorf("打开 sidecar 文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockSH(f); err != nil {
+	if err := platform.FlockLock(f, path, platform.FlockSH); err != nil {
 		return nil, fmt.Errorf("获取 sidecar 共享锁失败: %w", err)
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	fi, err := f.Stat()
 	if err != nil {
@@ -88,10 +87,10 @@ func SaveSidecar(sc *Sidecar) error {
 		return fmt.Errorf("打开 sidecar 文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockEX(f); err != nil {
+	if err := platform.FlockLock(f, path, platform.FlockEX); err != nil {
 		return fmt.Errorf("获取 sidecar 独占锁失败: %w", err)
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	data, err := json.MarshalIndent(sc, "", "  ")
 	if err != nil {
@@ -120,10 +119,10 @@ func RemoveSidecar(name string) error {
 		return fmt.Errorf("打开 sidecar 文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockEX(f); err != nil {
+	if err := platform.FlockLock(f, path, platform.FlockEX); err != nil {
 		return fmt.Errorf("获取 sidecar 独占锁失败: %w", err)
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除 sidecar 文件失败: %w", err)
@@ -148,40 +147,4 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
-}
-
-// flockSH 对文件加共享锁（阻塞式），超时 5 秒。
-func flockSH(f *os.File) error {
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return fmt.Errorf("加共享锁失败: %w", err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("获取共享锁超时，可能有其他 work 进程正在写入")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-}
-
-// flockEX 对文件加独占锁（阻塞式），超时 5 秒。
-func flockEX(f *os.File) error {
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			return nil
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return fmt.Errorf("加独占锁失败: %w", err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("获取独占锁超时，可能有其他 work 进程正在操作")
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
 }

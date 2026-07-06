@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 type Store struct {
@@ -33,10 +35,10 @@ func (s *Store) Load() (*File, error) {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockLock(f, s.path, lockSH); err != nil {
+	if err := platform.FlockLock(f, s.path, platform.FlockSH); err != nil {
 		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
 	}
-	defer func() { _ = flockUnlock(f) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	return s.cachedRead(f)
 }
@@ -122,10 +124,10 @@ func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockLock(f, s.path, lockSH); err != nil {
+	if err := platform.FlockLock(f, s.path, platform.FlockSH); err != nil {
 		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
 	}
-	defer func() { _ = flockUnlock(f) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	file, err := s.cachedRead(f)
 	if err != nil {
@@ -147,10 +149,10 @@ func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockLock(f, s.path, lockSH); err != nil {
+	if err := platform.FlockLock(f, s.path, platform.FlockSH); err != nil {
 		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
 	}
-	defer func() { _ = flockUnlock(f) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	file, err := s.cachedRead(f)
 	if err != nil {
@@ -168,12 +170,6 @@ func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 	return out, nil
 }
 
-// lockSH / lockEX 用于跨平台锁类型
-const (
-	lockSH = 1 // shared
-	lockEX = 2 // exclusive
-)
-
 // withLock 持有独占锁执行 fn，保证并发安全。
 func (s *Store) withLock(fn func() error) error {
 	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o600)
@@ -181,10 +177,10 @@ func (s *Store) withLock(fn func() error) error {
 		return fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := flockLock(f, s.path, lockEX); err != nil {
+	if err := platform.FlockLock(f, s.path, platform.FlockEX); err != nil {
 		return err
 	}
-	defer func() { _ = flockUnlock(f) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 	return fn()
 }
 

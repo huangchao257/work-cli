@@ -3,15 +3,13 @@ package adapter
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
-	"time"
 
 	"github.com/huangchao257/work-cli/internal/bundle"
+	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/pkg/copyutil"
 )
 
@@ -119,21 +117,10 @@ func withMCPLock(configPath string, fn func(existing []byte) ([]byte, error)) ([
 	}
 	defer f.Close()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("获取 MCP 配置文件独占锁失败: %w", err)
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("获取 MCP 配置文件独占锁超时，可能有其他 work 进程正在操作")
-		}
-		time.Sleep(50 * time.Millisecond)
+	if err := platform.FlockLock(f, configPath, platform.FlockEX); err != nil {
+		return nil, fmt.Errorf("获取 MCP 配置文件独占锁失败: %w", err)
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	existing, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {

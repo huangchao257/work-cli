@@ -2,12 +2,12 @@ package selfupdate
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"syscall"
 	"time"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 type checkState struct {
@@ -38,21 +38,10 @@ func withStateLock(fn func() error) error {
 	}
 	defer f.Close()
 
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, syscall.EWOULDBLOCK) {
-			return fmt.Errorf("获取自更新状态文件独占锁失败: %w", err)
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("获取自更新状态文件独占锁超时，可能有其他 work 进程正在操作")
-		}
-		time.Sleep(50 * time.Millisecond)
+	if err := platform.FlockLock(f, path, platform.FlockEX); err != nil {
+		return fmt.Errorf("获取自更新状态文件独占锁失败: %w", err)
 	}
-	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+	defer func() { _ = platform.FlockUnlock(f) }()
 
 	return fn()
 }
