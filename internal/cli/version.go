@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 	"os"
 
@@ -30,7 +29,7 @@ var versionCmd = &cobra.Command{
 		if !versionCheckUpdate {
 			return nil
 		}
-		res, err := selfupdate.NewUpdater(Version).Check(context.Background())
+		res, err := selfupdate.NewUpdater(Version).Check(signalContext())
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "检查更新失败: %v\n", err)
 			return nil

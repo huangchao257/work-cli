@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-
 	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/spf13/cobra"
@@ -24,7 +22,7 @@ var updateCmd = &cobra.Command{
 		if len(args) > 0 {
 			name = args[0]
 		}
-		results, err := engine.Update(context.Background(), name, scope, dryRun)
+		results, err := engine.Update(signalContext(), name, scope, dryRun)
 		if err != nil {
 			return err
 		}

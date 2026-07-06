@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"fmt"
 
 	"github.com/huangchao257/work-cli/internal/output"
@@ -10,9 +9,10 @@ import (
 )
 
 var (
-	upgradeCheck   bool
-	upgradeDryRun  bool
-	upgradeVersion string
+	upgradeCheck     bool
+	upgradeDryRun    bool
+	upgradeCheckOnly bool
+	upgradeVersion   string
 )
 
 var upgradeCmd = &cobra.Command{
@@ -23,13 +23,14 @@ var upgradeCmd = &cobra.Command{
 示例:
   work upgrade              # 更新到最新版
   work upgrade --check      # 仅检查是否有新版本
+  work upgrade --check-only # 仅检查是否有新版本（不下载）
   work upgrade --dry-run    # 预览将下载的版本
   work upgrade --version v0.2.0  # 更新到指定版本`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		updater := selfupdate.NewUpdater(Version)
-		ctx := context.Background()
+		ctx := signalContext()
 
-		if upgradeCheck {
+		if upgradeCheck || upgradeCheckOnly {
 			res, err := updater.Check(ctx)
 			if err != nil {
 				return err
@@ -41,8 +42,9 @@ var upgradeCmd = &cobra.Command{
 		}
 
 		res, err := updater.Upgrade(ctx, selfupdate.UpgradeOptions{
-			Version: upgradeVersion,
-			DryRun:  upgradeDryRun || dryRun,
+			Version:   upgradeVersion,
+			DryRun:    upgradeDryRun || dryRun,
+			CheckOnly: upgradeCheckOnly,
 		})
 		if err != nil {
 			return err
@@ -78,6 +80,7 @@ func printUpgradeResult(cmd *cobra.Command, res *selfupdate.CheckResult, preview
 
 func init() {
 	upgradeCmd.Flags().BoolVar(&upgradeCheck, "check", false, "仅检查是否有新版本")
+	upgradeCmd.Flags().BoolVar(&upgradeCheckOnly, "check-only", false, "仅检查是否有新版本（不下载）")
 	upgradeCmd.Flags().BoolVar(&upgradeDryRun, "dry-run", false, "仅预览将执行的更新")
 	upgradeCmd.Flags().StringVar(&upgradeVersion, "version", "", "更新到指定版本（如 v0.2.0）")
 	rootCmd.AddCommand(upgradeCmd)

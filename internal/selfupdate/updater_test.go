@@ -26,7 +26,8 @@ func TestExtractFromTarGz(t *testing.T) {
 	var buf bytes.Buffer
 	gzw := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gzw)
-	payload := []byte("binary-data")
+	// 构造看起来像 ELF 二进制的有效 payload（0x7F + "ELF" 前缀）
+	payload := []byte("\x7FELFbinary-data-for-test")
 	if err := tw.WriteHeader(&tar.Header{
 		Name: "work",
 		Mode: 0o755,
@@ -48,7 +49,7 @@ func TestExtractFromTarGz(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(got) != "binary-data" {
+	if string(got) != "\x7FELFbinary-data-for-test" {
 		t.Fatalf("got %q", got)
 	}
 }
@@ -56,17 +57,19 @@ func TestExtractFromTarGz(t *testing.T) {
 func TestReplaceExecutable(t *testing.T) {
 	dir := t.TempDir()
 	dest := filepath.Join(dir, "work")
-	if err := os.WriteFile(dest, []byte("old"), 0o755); err != nil {
+	// 写入一个看起来像 ELF 的有效旧二进制
+	if err := os.WriteFile(dest, []byte("\x7FELFold"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := replaceExecutable(dest, []byte("new")); err != nil {
+	// 新数据也是有效二进制（ELF magic）
+	if err := replaceExecutable(dest, []byte("\x7FELFnew")); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(dest)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "new" {
+	if string(data) != "\x7FELFnew" {
 		t.Fatalf("got %q", data)
 	}
 }
@@ -190,7 +193,7 @@ func buildTarGz(t *testing.T, payload []byte) []byte {
 
 func TestDownloadAsset(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "payload")
+		_, _ = io.WriteString(w, "\x7FELFpayload")
 	}))
 	defer srv.Close()
 
@@ -198,7 +201,7 @@ func TestDownloadAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) != "payload" {
+	if string(data) != "\x7FELFpayload" {
 		t.Fatalf("got %q", data)
 	}
 }

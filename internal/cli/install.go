@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-
 	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/huangchao257/work-cli/internal/source"
@@ -29,7 +27,7 @@ var installCmd = &cobra.Command{
 		if err := source.ValidateInstallName(ref.Name); err != nil {
 			return err
 		}
-		res, err := engine.Install(context.Background(), engine.Options{
+		res, err := engine.Install(signalContext(), engine.Options{
 			Scope:  scope,
 			IDEs:   SplitIDEs(ide),
 			DryRun: dryRun,

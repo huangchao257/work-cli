@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"context"
-
 	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/spf13/cobra"
@@ -21,7 +19,7 @@ var uninstallCmd = &cobra.Command{
   work uninstall openspec --scope project`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		res, err := engine.Uninstall(context.Background(), args[0], scope, dryRun)
+		res, err := engine.Uninstall(signalContext(), args[0], scope, dryRun)
 		if err != nil {
 			return err
 		}

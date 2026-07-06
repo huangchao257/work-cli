@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"os"
 
 	"github.com/huangchao257/work-cli/internal/graph"
@@ -30,7 +29,7 @@ var graphInitCmd = &cobra.Command{
 	  work graph init --path /path/to/project
 	  work graph init --dry-run`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return graph.Init(context.Background(), graph.Options{
+		return graph.Init(signalContext(), graph.Options{
 			ProjectPath: graphPath,
 			DryRun:      dryRun,
 		})
@@ -44,7 +43,7 @@ var graphSyncCmd = &cobra.Command{
 	Example: `  work graph sync
 	  work graph sync --path /path/to/project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return graph.Sync(context.Background(), graph.Options{
+		return graph.Sync(signalContext(), graph.Options{
 			ProjectPath: graphPath,
 			DryRun:      dryRun,
 			Quiet:       false,
@@ -60,7 +59,7 @@ var graphStatusCmd = &cobra.Command{
 	  work graph status --json
 	  work graph status --path /path/to/project`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return graph.PrintStatus(context.Background(), graph.Options{
+		return graph.PrintStatus(signalContext(), graph.Options{
 			ProjectPath: graphPath,
 			Quiet:       asJSON,
 		}, os.Stdout)

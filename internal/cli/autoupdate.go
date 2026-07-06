@@ -17,7 +17,6 @@ var noAutoUpdate bool
 
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&noAutoUpdate, "no-auto-update", false, "跳过本次命令的 work 自动更新检查")
-	rootCmd.PersistentPreRunE = runAutoUpdate
 }
 
 // runAutoUpdate 在命令执行前同步检查自更新。
@@ -28,7 +27,7 @@ func runAutoUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(signalContext(), 2*time.Minute)
 	defer cancel()
 
 	res, err := selfupdate.TryAuto(ctx, selfupdate.AutoOptions{CurrentVersion: Version})
