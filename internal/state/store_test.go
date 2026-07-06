@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -19,6 +20,16 @@ func TestStoreUpsertRemove(t *testing.T) {
 	if err := s.Upsert(rec); err != nil {
 		t.Fatal(err)
 	}
+
+	// 验证状态文件写入了版本号
+	file, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file.Version != CurrentVersion {
+		t.Fatalf("unexpected version: %d, want %d", file.Version, CurrentVersion)
+	}
+
 	got, err := s.Find("dev-kit", "user")
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +135,7 @@ func TestStoreCacheInvalidateOnSave(t *testing.T) {
 		InstalledAt: time.Now().UTC(),
 	}
 	// 直接写入文件绕过 Store
-	rawFile := File{Bundles: []BundleRecord{rec2}}
+	rawFile := File{Version: CurrentVersion, Bundles: []BundleRecord{rec2}}
 	if err := saveFileDirect(path, &rawFile); err != nil {
 		t.Fatal(err)
 	}
@@ -382,4 +393,70 @@ func FuzzStoreUpsertFind(f *testing.F) {
 		_, _ = s.Find(name, scope)
 	})
 
+}
+
+// TestStoreVersionBackwardCompat 验证旧格式（无 version 字段）的状态文件可正常读取，
+// 并自动补齐版本号为 1。
+func TestStoreVersionBackwardCompat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "installed.json")
+
+	// 直接写入旧格式 JSON（无 version 字段）
+	oldFormat := []byte(`{"bundles":[{"name":"demo","kind":"bundle","version":"1.0","scope":"user","ref":"demo","installed_at":"2025-01-01T00:00:00Z"}]}`)
+	if err := os.WriteFile(path, oldFormat, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := s.Load()
+	if err != nil {
+		t.Fatalf("旧格式文件应可正常读取: %v", err)
+	}
+	if file.Version != 1 {
+		t.Fatalf("旧格式应自动识别为版本 1，实际为: %d", file.Version)
+	}
+	if len(file.Bundles) != 1 {
+		t.Fatalf("应读取到 1 条记录，实际为: %d", len(file.Bundles))
+	}
+	if file.Bundles[0].Name != "demo" {
+		t.Fatalf("记录名应为 demo，实际为: %s", file.Bundles[0].Name)
+	}
+}
+
+// TestStoreVersionTooHigh 验证高于当前支持的版本号应返回明确错误。
+func TestStoreVersionTooHigh(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "installed.json")
+
+	// 写入未来版本（版本 99，远高于当前支持的版本）
+	futureFormat := []byte(`{"version":99,"bundles":[{"name":"future","kind":"bundle","version":"1.0","scope":"user","ref":"future","installed_at":"2030-01-01T00:00:00Z"}]}`)
+	if err := os.WriteFile(path, futureFormat, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Load()
+	if err == nil {
+		t.Fatal("未来版本应返回错误")
+	}
+	// 验证错误信息包含版本号提示
+	if !strings.Contains(err.Error(), "不受支持") {
+		t.Fatalf("错误信息应提示版本不受支持，实际为: %v", err)
+	}
+}
+
+// TestStoreMigration 验证迁移注册表与 File.Migrate 方法。
+func TestStoreMigration(t *testing.T) {
+	// 迁移空文件（版本 1 即最新，无需迁移）
+	f := &File{Version: 1}
+	if err := f.Migrate(); err != nil {
+		t.Fatalf("版本 1 应无需迁移: %v", err)
+	}
+	if f.Version != 1 {
+		t.Fatalf("版本应保持 1，实际为: %d", f.Version)
+	}
 }

@@ -234,6 +234,7 @@ func (s *Store) cachedRead(f *os.File) (*File, error) {
 
 	// 深拷贝 Bundles 切片存入缓存，避免外部修改影响缓存内容
 	cached := File{
+		Version: file.Version,
 		Bundles: make([]BundleRecord, len(file.Bundles)),
 	}
 	copy(cached.Bundles, file.Bundles)

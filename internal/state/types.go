@@ -2,10 +2,7 @@ package state
 
 import "time"
 
-type File struct {
-	Bundles []BundleRecord `json:"bundles"`
-}
-
+// BundleRecord 表示一条已安装的资源包记录。
 type BundleRecord struct {
 	Name           string          `json:"name"`
 	Kind           string          `json:"kind"`
