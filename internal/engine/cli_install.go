@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/huangchao257/work-cli/internal/bundle"
 	"github.com/huangchao257/work-cli/internal/installer"
 	"github.com/huangchao257/work-cli/internal/state"
 )
@@ -15,7 +14,7 @@ func installCLI(ctx context.Context, pkgDir string, opts Options, refRaw string)
 	if err != nil {
 		return Result{}, fmt.Errorf("解析 installer.yaml 失败: %w", err)
 	}
-	if err := checkMissingEnv(bundle.RequiredEnvNames(manifest.Env)); err != nil {
+	if err := checkMissingEnv(installer.RequiredEnvNames(manifest.Env)); err != nil {
 		return Result{}, err
 	}
 
