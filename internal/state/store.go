@@ -211,6 +211,8 @@ func (s *Store) InvalidateCache() {
 }
 
 // cachedRead 读状态文件，文件 mtime 未变则直接返回缓存副本。
+// 使用双重检查锁定（double-checked locking）避免 TOCTOU：
+// 释放读锁与获取写锁之间可能有其他 goroutine 已更新缓存。
 func (s *Store) cachedRead(f *os.File) (*File, error) {
 	fi, err := f.Stat()
 	if err != nil {
@@ -237,6 +239,12 @@ func (s *Store) cachedRead(f *os.File) (*File, error) {
 	}
 	copy(cached.Bundles, file.Bundles)
 	s.mu.Lock()
+	// 双重检查：在释放读锁与获取写锁之间，可能有其他 goroutine
+	// 基于更新的 mtime 写入了更新的缓存。此时应保留较新的缓存。
+	if s.cache != nil && s.mtime > curMtime {
+		s.mu.Unlock()
+		return file, nil
+	}
 	s.cache = &cached
 	s.mtime = curMtime
 	s.mu.Unlock()

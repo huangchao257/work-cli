@@ -2,9 +2,11 @@ package selfupdate
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -18,6 +20,41 @@ func statePath() (string, error) {
 		return "", fmt.Errorf("获取用户主目录失败: %w", err)
 	}
 	return filepath.Join(home, ".work", "self-update.json"), nil
+}
+
+// withStateLock 对 self-update.json 加文件锁，执行 fn 并返回结果。
+// 用于防止多个 work 进程同时读写自更新状态文件导致竞争。
+func withStateLock(fn func() error) error {
+	path, err := statePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("创建自更新状态目录失败: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if err != nil {
+		return fmt.Errorf("打开自更新状态文件失败: %w", err)
+	}
+	defer f.Close()
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) {
+			return fmt.Errorf("获取自更新状态文件独占锁失败: %w", err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("获取自更新状态文件独占锁超时，可能有其他 work 进程正在操作")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	defer func() { _ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN) }()
+
+	return fn()
 }
 
 func loadCheckState() (checkState, error) {
@@ -71,6 +108,9 @@ func shouldCheckNow(interval time.Duration, force bool) (bool, error) {
 	return time.Since(st.LastCheck) >= interval, nil
 }
 
+// markChecked 标记自更新检查时间，使用文件锁防止多个 work 进程并发写入。
 func markChecked() error {
-	return saveCheckState(checkState{LastCheck: time.Now()})
+	return withStateLock(func() error {
+		return saveCheckState(checkState{LastCheck: time.Now()})
+	})
 }
