@@ -128,3 +128,56 @@ func formatAge(d time.Duration) string {
 	}
 	return fmt.Sprintf("%d 小时", int(d.Hours()))
 }
+
+// PrintHumanBatch 以人类可读格式输出批量操作结果汇总。
+func PrintHumanBatch(w io.Writer, br *engine.BatchResult) error {
+	if dryRun := anyBatchDryRun(br); dryRun {
+		fmt.Fprintf(w, "（预览模式，未实际执行）\n")
+	}
+	for _, res := range br.Results {
+		if !res.Success {
+			for _, warn := range res.Warnings {
+				fmt.Fprintf(w, "✗ %s: %s\n", res.Name, warn)
+			}
+			continue
+		}
+		if res.DryRun {
+			fmt.Fprintf(w, "  %s（将安装）\n", res.Name)
+			continue
+		}
+		switch res.Kind {
+		case "cli":
+			if res.Success {
+				cmd := ""
+				if len(res.Commands) > 0 {
+					cmd = fmt.Sprintf("（已执行：%s）", res.Commands[0])
+				}
+				fmt.Fprintf(w, "✓ %s v%s %s\n", res.Name, res.Version, cmd)
+			}
+		case "hooks":
+			fmt.Fprintf(w, "✓ %s v%s\n", res.Name, res.Version)
+		default:
+			ides := ""
+			if len(res.InstalledIDEs) > 0 {
+				ides = " → " + strings.Join(res.InstalledIDEs, ", ")
+			}
+			fmt.Fprintf(w, "✓ %s v%s%s（范围：%s）\n", res.Name, res.Version, ides, scopeLabel(res.Scope))
+		}
+	}
+	fmt.Fprintf(w, "\n总计 %d 个：✓ %d 成功", br.Total(), br.Successes)
+	if br.Failures > 0 {
+		fmt.Fprintf(w, "，✗ %d 失败", br.Failures)
+	}
+	fmt.Fprintln(w)
+	return nil
+}
+
+// anyBatchDryRun 检查批量结果中是否有任何操作处于 dry-run 模式。
+func anyBatchDryRun(br *engine.BatchResult) bool {
+	for _, r := range br.Results {
+		if r.DryRun {
+			return true
+		}
+	}
+	return false
+}

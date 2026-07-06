@@ -38,6 +38,10 @@ type Updater struct {
 	Repo           string
 	HTTPClient     *http.Client
 	Executable     func() (string, error)
+
+	// cachedRelease 缓存最近一次 Check/Upgrade 获取的 releaseInfo，
+	// 避免同一命令内从 GitHub API 重复拉取。
+	cachedRelease *releaseInfo
 }
 
 func NewUpdater(currentVersion string) *Updater {
@@ -61,6 +65,8 @@ func (u *Updater) Check(ctx context.Context) (*CheckResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("查询最新版本失败: %w", err)
 	}
+	// 缓存 releaseInfo，供后续 Upgrade 复用
+	u.cachedRelease = info
 	asset, err := resolveAsset(info, "")
 	if err != nil {
 		return nil, fmt.Errorf("解析下载资产失败: %w", err)
@@ -85,12 +91,20 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 	var info *releaseInfo
 	var err error
 	if strings.TrimSpace(opts.Version) == "" {
-		info, err = fetchLatestRelease(ctx, u.HTTPClient, repo)
+		// 如果之前 Check 已调用过且 repo 一致，复用缓存的 releaseInfo
+		if u.cachedRelease != nil {
+			info = u.cachedRelease
+		} else {
+			info, err = fetchLatestRelease(ctx, u.HTTPClient, repo)
+			if err != nil {
+				return nil, err
+			}
+		}
 	} else {
 		info, err = fetchReleaseByTag(ctx, u.HTTPClient, repo, opts.Version)
-	}
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	asset, err := resolveAsset(info, info.TagName)
@@ -138,16 +152,6 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 	return result, nil
 }
 
-func normalizeTag(tag string) string {
-	tag = strings.TrimSpace(tag)
-	if tag == "" {
-		return "dev"
-	}
-	if !strings.HasPrefix(tag, "v") && tag != "dev" {
-		return "v" + tag
-	}
-	return tag
-}
 
 func downloadAsset(ctx context.Context, client *http.Client, url string) ([]byte, error) {
 	if client == nil {
