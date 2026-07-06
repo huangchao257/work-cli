@@ -15,6 +15,7 @@ var doctorCmd = &cobra.Command{
 
 依次检查：IDE 探测、work 是否在 PATH、config.yaml 合法性、
 installed.json 可读性、各 IDE 的 MCP 配置合法性、codegraph/jq 可用性、
+AI 模型配置、Registry 连通性、Hooks 配置、残留临时文件、文件权限、
 自更新配置概况。任一 error 项失败将以退出码 1 返回，便于 CI 集成。`,
 	Example: `  work doctor                 # 体检当前环境
   work doctor --ide qoder     # 指定 IDE 后额外校验是否检测到

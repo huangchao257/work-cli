@@ -8,6 +8,8 @@ package doctor
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +17,11 @@ import (
 	"time"
 
 	"github.com/huangchao257/work-cli/internal/adapter"
+	"github.com/huangchao257/work-cli/internal/ai"
+	"github.com/huangchao257/work-cli/internal/hooks"
 	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/selfupdate"
+	"github.com/huangchao257/work-cli/internal/source"
 	"github.com/huangchao257/work-cli/internal/state"
 	"gopkg.in/yaml.v3"
 )
@@ -59,6 +64,11 @@ func Run(opts Options) []CheckResult {
 	results = append(results, checkCodegraph())
 	results = append(results, checkJQ())
 	results = append(results, checkSelfUpdate())
+	results = append(results, checkAIConfig())
+	results = append(results, checkRegistryConnectivity())
+	results = append(results, checkHooksConfig())
+	results = append(results, checkStaleTempFiles())
+	results = append(results, checkFilePermissions())
 
 	return results
 }
@@ -326,4 +336,207 @@ func formatDuration(d time.Duration) string {
 		return "0s"
 	}
 	return d.String()
+}
+
+// checkAIConfig 检查 ai.models 段是否合法。
+// 若配置存在但默认 profile 不可用则标 warning（info 严重度）；
+// 若 ai.models 段完全不存在则仅做 info 提示。
+func checkAIConfig() CheckResult {
+	cr := CheckResult{Name: "AI 模型配置", Severity: SeverityInfo}
+	profiles, err := ai.ListProfiles()
+	if err != nil {
+		cr.Detail = fmt.Sprintf("读取 ai.models 失败: %v", err)
+		return cr
+	}
+	if len(profiles) == 0 {
+		cr.OK = true
+		cr.Detail = "未配置 ai.models（可选，不影响其余功能）"
+		return cr
+	}
+	// 尝试加载 default profile，失败说明配置不完整
+	cfg, err := ai.LoadModelConfig("default")
+	if err != nil {
+		cr.Detail = fmt.Sprintf("已配置 %d 个 profile（%s），但默认 profile 加载失败: %v",
+			len(profiles), strings.Join(profiles, ", "), err)
+		return cr
+	}
+	cr.OK = true
+	cr.Detail = fmt.Sprintf("已配置 %d 个 profile（%s），默认: provider=%s model=%s",
+		len(profiles), strings.Join(profiles, ", "), cfg.Provider, cfg.Model)
+	return cr
+}
+
+// checkRegistryConnectivity 若 registry.url 已配置，探测其连通性（超时 5s）。
+func checkRegistryConnectivity() CheckResult {
+	cr := CheckResult{Name: "Registry 连通性", Severity: SeverityInfo}
+	cfg, err := source.LoadUserConfig()
+	if err != nil {
+		cr.Detail = fmt.Sprintf("读取配置失败: %v", err)
+		return cr
+	}
+	url := strings.TrimSpace(cfg.Registry.URL)
+	if url == "" {
+		cr.OK = true
+		cr.Detail = "未配置 registry.url（可选）"
+		return cr
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Head(url)
+	if err != nil {
+		cr.Detail = fmt.Sprintf("%s — 不可连接: %v", url, err)
+		return cr
+	}
+	resp.Body.Close()
+	cr.OK = true
+	cr.Detail = fmt.Sprintf("%s — 可连接 (HTTP %d)", url, resp.StatusCode)
+	return cr
+}
+
+// checkHooksConfig 检查 hooks-installed 目录下的 sidecar 记录是否至少有一份合法。
+func checkHooksConfig() CheckResult {
+	cr := CheckResult{Name: "Hooks 配置检查", Severity: SeverityInfo}
+	dir, err := hooks.HooksInstalledDir()
+	if err != nil {
+		cr.Detail = fmt.Sprintf("无法定位 hooks-installed 目录: %v", err)
+		return cr
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cr.OK = true
+			cr.Detail = "hooks-installed 目录不存在（尚未安装 hooks）"
+			return cr
+		}
+		cr.Detail = fmt.Sprintf("读取 hooks-installed 目录失败: %v", err)
+		return cr
+	}
+	var valid, invalid int
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		name := strings.TrimSuffix(e.Name(), ".json")
+		_, err := hooks.LoadSidecar(name)
+		if err == nil {
+			valid++
+		} else {
+			invalid++
+		}
+	}
+	cr.OK = true
+	if valid == 0 && invalid == 0 {
+		cr.Detail = "hooks-installed 目录为空（尚未安装 hooks）"
+	} else if invalid > 0 {
+		cr.Detail = fmt.Sprintf("有效 %d / 无效 %d（部分 sidecar 记录解析失败，检查 hooks-installed 目录）", valid, invalid)
+	} else {
+		cr.Detail = fmt.Sprintf("已安装 %d 个 hooks 套装，sidecar 记录均合法", valid)
+	}
+	return cr
+}
+
+// checkStaleTempFiles 检查常见位置是否有残留的临时文件。
+func checkStaleTempFiles() CheckResult {
+	cr := CheckResult{Name: "残留临时文件", Severity: SeverityInfo}
+	patterns := []string{".work-upgrade-*", ".installed-*.json", ".work-tmp-*"}
+	var found []string
+
+	// 检查 HOME 目录
+	home, err := platform.UserHome()
+	searchDirs := []string{}
+	if err == nil {
+		searchDirs = append(searchDirs, home)
+	}
+	// 检查 work 配置目录
+	if dir, err := platform.WorkConfigDir(); err == nil {
+		searchDirs = append(searchDirs, dir)
+	}
+
+	for _, dir := range searchDirs {
+		for _, pat := range patterns {
+			glob := filepath.Join(dir, pat)
+			matches, err := filepath.Glob(glob)
+			if err != nil {
+				continue
+			}
+			for _, m := range matches {
+				// 排除目录
+				if info, err := os.Stat(m); err == nil && info.IsDir() {
+					continue
+				}
+				found = append(found, m)
+			}
+		}
+	}
+
+	if len(found) == 0 {
+		cr.OK = true
+		cr.Detail = "未发现残留临时文件"
+		return cr
+	}
+	cr.Detail = fmt.Sprintf("发现 %d 个残留临时文件（可安全删除）: %s", len(found), strings.Join(found, ", "))
+	return cr
+}
+
+// checkFilePermissions 检查 ~/.work/ 目录与 config.yaml 文件权限是否安全。
+func checkFilePermissions() CheckResult {
+	cr := CheckResult{Name: "文件权限检查", Severity: SeverityError}
+	dir, err := platform.WorkConfigDir()
+	if err != nil {
+		cr.OK = false
+		cr.Detail = fmt.Sprintf("无法定位配置目录: %v", err)
+		return cr
+	}
+
+	// 检查目录
+	dirInfo, err := os.Stat(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cr.OK = true
+			cr.Detail = "~/.work 目录不存在（尚未初始化）"
+			return cr
+		}
+		cr.OK = false
+		cr.Detail = fmt.Sprintf("无法读取目录信息: %v", err)
+		return cr
+	}
+	dirPerm := dirInfo.Mode().Perm()
+	if dirPerm&0o002 != 0 {
+		cr.OK = false
+		cr.Detail = fmt.Sprintf("~/.work 目录权限过于宽松 (%s)，应为 0700 或 0755，禁止所有人可写",
+			permString(dirPerm))
+		return cr
+	}
+
+	// 检查 config.yaml
+	configPath := filepath.Join(dir, "config.yaml")
+	cfgInfo, err := os.Stat(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cr.OK = true
+			cr.Detail = fmt.Sprintf("目录权限安全 (%s)，config.yaml 不存在", permString(dirPerm))
+			return cr
+		}
+		cr.OK = false
+		cr.Detail = fmt.Sprintf("无法读取 config.yaml 信息: %v", err)
+		return cr
+	}
+	cfgPerm := cfgInfo.Mode().Perm()
+	if cfgPerm&0o077 != 0 {
+		cr.OK = false
+		cr.Detail = fmt.Sprintf("config.yaml 权限过于宽松 (%s)，应为 0600，禁止同组/其他人读",
+			permString(cfgPerm))
+		return cr
+	}
+
+	cr.OK = true
+	cr.Detail = fmt.Sprintf("目录 %s，config.yaml %s，均安全",
+		permString(dirPerm), permString(cfgPerm))
+	return cr
+}
+
+// permString 将 os.FileMode 权位格式化为 octor 字符串，如 "0700"。
+// 仅显示 Unix 权限位（低 12 位：特殊位 + rwx×3）。
+func permString(mode fs.FileMode) string {
+	bits := mode & fs.ModePerm
+	return fmt.Sprintf("0%o", bits)
 }
