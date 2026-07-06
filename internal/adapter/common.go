@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/huangchao257/work-cli/internal/bundle"
-	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/pkg/copyutil"
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 func installSkillAt(bundleRoot string, skill bundle.SkillResource, dest string) (string, error) {
