@@ -2,8 +2,8 @@ package cli
 
 import (
 	"fmt"
-	"os"
 
+	"github.com/huangchao257/work-cli/internal/log"
 	"github.com/huangchao257/work-cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -20,8 +20,8 @@ var versionCmd = &cobra.Command{
 	Short: "显示版本号",
 	Long:  "显示当前 work 版本。默认会检查 GitHub 是否有新版本可用。",
 	Example: `  work version
-	  work version --json
-	  work version --check-update=false`,
+		  work version --json
+		  work version --check-update=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if _, err := fmt.Fprintln(cmd.OutOrStdout(), Version); err != nil {
 			return err
@@ -31,7 +31,7 @@ var versionCmd = &cobra.Command{
 		}
 		res, err := selfupdate.NewUpdater(Version).Check(signalContext())
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "检查更新失败: %v\n", err)
+			log.Warnf("[work]", "检查更新失败: %v", err)
 			return nil
 		}
 		if res.UpdateAvailable {

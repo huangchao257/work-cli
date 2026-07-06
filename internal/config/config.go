@@ -198,6 +198,15 @@ func validateKey(key string) error {
 			return errUsage("键路径包含空段: %s", key)
 		}
 	}
+	// 拒绝控制字符与前后空白，避免 YAML 键名异常
+	for _, r := range key {
+		if r < 0x20 && r != '\t' {
+			return errUsage("键包含非法控制字符: %q", key)
+		}
+	}
+	if key != strings.TrimSpace(key) {
+		return errUsage("键首尾不能有空白: %q", key)
+	}
 	return nil
 }
 

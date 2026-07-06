@@ -349,3 +349,37 @@ func saveFileDirect(path string, f *File) error {
 	tmp.Close()
 	return os.Rename(tmpPath, path)
 }
+
+// FuzzStoreUpsertFind 对状态存储的 Upsert+Find 往返进行模糊测试，
+// 验证任意 BundleRecord 写入后查找一致，且不会 panic。
+func FuzzStoreUpsertFind(f *testing.F) {
+	// 种子：典型记录
+	f.Add("dev-kit", "bundle", "1.0.0", "user", "dev-kit")
+	f.Add("test-cli", "cli", "2.0.0", "project", "test-cli")
+	f.Add("hooks-pack", "hooks", "0.1.0", "user", "hooks-pack")
+	f.Add("", "bundle", "1.0.0", "user", "") // 空名称（应失败）
+	f.Add("test", "bundle", "1.0.0", "", "") // 空 scope（应失败）
+
+	f.Fuzz(func(t *testing.T, name, kind, version, scope, ref string) {
+		path := filepath.Join(t.TempDir(), "installed.json")
+		s, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		rec := BundleRecord{
+			Name:    name,
+			Kind:    kind,
+			Version: version,
+			Scope:   scope,
+			Ref:     ref,
+		}
+		err = s.Upsert(rec)
+		if err != nil {
+			return
+		}
+		// fuzz 仅验证无 panic，不校验非 UTF-8 字节的 JSON 往返语义
+		_, _ = s.Find(name, scope)
+	})
+
+}

@@ -3,6 +3,7 @@ package cli
 import (
 	"strings"
 
+	"github.com/huangchao257/work-cli/internal/log"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +34,13 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&kind, "kind", "", "过滤类型：bundle、cli 或 hooks（用于 list）")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "仅预览将执行的操作")
 	rootCmd.PersistentFlags().BoolVar(&asJSON, "json", false, "JSON 格式输出")
+	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "输出详细日志")
+	// 将 cobra 的 verbose flag 值同步到 log 包
+	cobra.OnInitialize(func() {
+		if v, _ := rootCmd.Flags().GetBool("verbose"); v {
+			log.SetVerbose(true)
+		}
+	})
 }
 
 // chainPreRunE 将多个 PersistentPreRunE 函数串行执行。

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/huangchao257/work-cli/internal/log"
 )
 
 const skillID = "codegraph-agents"
@@ -143,7 +145,7 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 	cmd.Dir = root
 	// sync 是幂等的预同步，失败时不应阻断后续流程；记录到 stderr 供排查
 	if err := cmd.Run(); err != nil && !quiet {
-		fmt.Fprintf(os.Stderr, "警告: codegraph sync 预同步失败（已忽略）: %v\n", err)
+		log.Warnf("[work graph]", "codegraph sync 预同步失败（已忽略）: %v", err)
 	}
 	return nil
 }

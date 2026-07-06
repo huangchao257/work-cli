@@ -62,6 +62,9 @@ func (s *Store) Upsert(rec BundleRecord) error {
 	if strings.TrimSpace(rec.Scope) == "" {
 		return fmt.Errorf("记录范围不能为空")
 	}
+	if hasControlChar(rec.Name) || hasControlChar(rec.Scope) {
+		return fmt.Errorf("记录名称或范围包含非法控制字符")
+	}
 	return s.withLock(func() error {
 		file, err := readStateFile(s.path)
 		if err != nil {
@@ -294,4 +297,15 @@ func atomicWrite(path string, f *File) error {
 	}
 	cleanup = false
 	return nil
+}
+
+// hasControlChar 检查字符串是否包含控制字符（tab 除外，
+// 因为 tab 在 JSON 字符串中可安全序列化）。
+func hasControlChar(s string) bool {
+	for _, r := range s {
+		if r < 0x20 && r != '\t' {
+			return true
+		}
+	}
+	return false
 }

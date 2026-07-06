@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/huangchao257/work-cli/internal/installer"
+	"github.com/huangchao257/work-cli/internal/log"
 	"github.com/huangchao257/work-cli/internal/state"
 )
 
@@ -86,7 +87,7 @@ func runInDir(ctx context.Context, dir, command string) error {
 		// 恢复原 CWD；失败时输出到 stderr，避免静默丢弃。
 		// 注意：os.Chdir 是进程全局操作，调用方应确保无并发 goroutine 依赖 CWD。
 		if rerr := os.Chdir(cwd); rerr != nil {
-			fmt.Fprintf(os.Stderr, "警告: 恢复工作目录失败: %v\n", rerr)
+			log.Warnf("[work]", "恢复工作目录失败: %v", rerr)
 		}
 	}()
 	return installer.Run(ctx, command)

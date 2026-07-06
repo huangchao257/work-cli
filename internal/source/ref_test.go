@@ -1,6 +1,7 @@
 package source
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/huangchao257/work-cli/internal/catalog"
@@ -131,4 +132,48 @@ func TestParseRefEdgeCases(t *testing.T) {
 			}
 		})
 	}
+}
+
+// FuzzParseInstallName 对安装名称解析进行模糊测试，
+// 验证任意字符串输入不会导致 panic，且合法名称返回有效 Ref。
+func FuzzParseInstallName(f *testing.F) {
+	// 种子：来自现有测试用例
+	f.Add("dev-kit")
+	f.Add("codegraph")
+	f.Add("a")
+	f.Add("123")
+	f.Add("go-1-21")
+	f.Add("")
+	f.Add("  ")
+	f.Add("Dev-Kit")
+	f.Add("dev_kit")
+	f.Add("-dev")
+	f.Add("dev-")
+	f.Add("a:b")
+	f.Add("a/b")
+	f.Add("a..b")
+	f.Add("./local")
+	f.Add("git:github.com/org/repo@v1.0")
+	f.Add("测试名称")
+	f.Add("a name with spaces")
+	f.Add(string(make([]byte, 100)))
+
+	f.Fuzz(func(t *testing.T, raw string) {
+		ref, err := ParseInstallName(raw)
+		if err != nil {
+			// 错误是预期的，不应 panic
+			return
+		}
+
+		// 成功解析的结果应有合法的 Kind（至少 KindRegistry）
+		if ref.Kind != KindRegistry {
+			t.Errorf("ParseInstallName 成功但 Kind 不是 KindRegistry: %d", ref.Kind)
+		}
+		if ref.Name != raw && strings.TrimSpace(raw) != ref.Name {
+			t.Errorf("返回的 Name(%q) 与输入(%q) 不一致", ref.Name, raw)
+		}
+
+		// 成功解析的名称再传给 ValidateInstallName 不应 panic
+		_ = ValidateInstallName(ref.Name)
+	})
 }

@@ -4,11 +4,11 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/huangchao257/work-cli/internal/log"
 	"github.com/huangchao257/work-cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -32,7 +32,7 @@ func runAutoUpdate(cmd *cobra.Command, args []string) error {
 
 	res, err := selfupdate.TryAuto(ctx, selfupdate.AutoOptions{CurrentVersion: Version})
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ 自动更新检查失败: %v\n", err)
+		log.Warnf("[work]", "自动更新检查失败: %v", err)
 		return nil
 	}
 	if !res.Updated {
@@ -41,7 +41,7 @@ func runAutoUpdate(cmd *cobra.Command, args []string) error {
 
 	selfupdate.NotifyAutoUpdate(os.Stderr, res)
 	if err := reExecute(); err != nil {
-		fmt.Fprintf(os.Stderr, "⚠ 自动更新后重新执行失败: %v\n请重新运行原命令\n", err)
+		log.Warnf("[work]", "自动更新后重新执行失败: %v\n请重新运行原命令", err)
 	}
 	return nil
 }
