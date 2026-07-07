@@ -36,6 +36,7 @@ type UpgradeOptions struct {
 type Updater struct {
 	CurrentVersion string
 	Repo           string
+	Channel        string // "stable" 或 "beta"，默认 "stable"
 	HTTPClient     *http.Client
 	Executable     func() (string, error)
 
@@ -48,6 +49,7 @@ func NewUpdater(currentVersion string) *Updater {
 	return &Updater{
 		CurrentVersion: currentVersion,
 		Repo:           DefaultRepo,
+		Channel:        "stable",
 		HTTPClient:     http.DefaultClient,
 		Executable:     os.Executable,
 	}
@@ -61,7 +63,7 @@ func (u *Updater) repo() string {
 }
 
 func (u *Updater) Check(ctx context.Context) (*CheckResult, error) {
-	info, err := fetchLatestRelease(ctx, u.HTTPClient, u.repo())
+	info, err := fetchLatestRelease(ctx, u.HTTPClient, u.repo(), u.Channel)
 	if err != nil {
 		return nil, fmt.Errorf("查询最新版本失败: %w", err)
 	}
@@ -95,7 +97,7 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 		if u.cachedRelease != nil {
 			info = u.cachedRelease
 		} else {
-			info, err = fetchLatestRelease(ctx, u.HTTPClient, repo)
+			info, err = fetchLatestRelease(ctx, u.HTTPClient, repo, u.Channel)
 			if err != nil {
 				return nil, err
 			}

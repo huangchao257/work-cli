@@ -27,7 +27,9 @@ var upgradeCmd = &cobra.Command{
   work upgrade --dry-run    # 预览将下载的版本
   work upgrade --version v0.2.0  # 更新到指定版本`,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg, _ := selfupdate.LoadConfig()
 		updater := selfupdate.NewUpdater(Version)
+		updater.Channel = cfg.Channel
 		ctx := signalContext()
 
 		if upgradeCheck || upgradeCheckOnly {

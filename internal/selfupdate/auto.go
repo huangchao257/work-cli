@@ -52,6 +52,7 @@ func TryAuto(ctx context.Context, opts AutoOptions) (*AutoResult, error) {
 	}
 
 	updater := NewUpdater(opts.CurrentVersion)
+	updater.Channel = cfg.Channel
 	res, err := updater.Upgrade(ctx, UpgradeOptions{})
 	if err != nil {
 		// 记录"已检查"状态：失败时也标记，避免短期内重复请求；保存失败不影响主流程

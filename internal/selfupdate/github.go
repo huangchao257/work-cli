@@ -13,8 +13,9 @@ import (
 const DefaultRepo = "huangchao257/work-cli"
 
 type releaseInfo struct {
-	TagName string `json:"tag_name"`
-	Assets  []struct {
+	TagName    string `json:"tag_name"`
+	Prerelease bool   `json:"prerelease"`
+	Assets     []struct {
 		Name string `json:"name"`
 		URL  string `json:"browser_download_url"`
 	} `json:"assets"`
@@ -63,7 +64,16 @@ func fetchReleaseResponse(ctx context.Context, client *http.Client, apiPath, rep
 	return &info, nil
 }
 
-func fetchLatestRelease(ctx context.Context, client *http.Client, repo string) (*releaseInfo, error) {
+func fetchLatestRelease(ctx context.Context, client *http.Client, repo, channel string) (*releaseInfo, error) {
+	switch channel {
+	case "beta":
+		return fetchLatestPrerelease(ctx, client, repo)
+	default:
+		return fetchStableRelease(ctx, client, repo)
+	}
+}
+
+func fetchStableRelease(ctx context.Context, client *http.Client, repo string) (*releaseInfo, error) {
 	info, err := fetchReleaseResponse(ctx, client, "releases/latest", repo, "获取最新版本失败")
 	if err != nil {
 		return nil, err
@@ -72,6 +82,31 @@ func fetchLatestRelease(ctx context.Context, client *http.Client, repo string) (
 		return nil, fmt.Errorf("Release 缺少 tag_name 字段")
 	}
 	return info, nil
+}
+
+// fetchLatestPrerelease 从 releases 列表 API 获取最新的 pre-release。
+func fetchLatestPrerelease(ctx context.Context, client *http.Client, repo string) (*releaseInfo, error) {
+	resp, err := gitHubAPI(ctx, client, "releases?per_page=20", repo)
+	if err != nil {
+		return nil, fmt.Errorf("获取 beta 版本失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("GitHub API 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+
+	var releases []releaseInfo
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return nil, fmt.Errorf("解析 Release 列表失败: %w", err)
+	}
+	for _, r := range releases {
+		if r.Prerelease && r.TagName != "" {
+			return &r, nil
+		}
+	}
+	return nil, fmt.Errorf("未找到 beta 版本")
 }
 
 // archAliases 将常见的 GOARCH 变体映射到标准名称，用于资产匹配。
