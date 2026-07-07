@@ -90,8 +90,9 @@ func parseParts(v string) []int {
 	return out
 }
 
-// comparePrerelease 比较预发布标识（遵循 SemVer 2.0）。
-// 无预发布者优先级最高；相同时返回 0；否则按字典序比较。
+// comparePrerelease 比较预发布标识（遵循 SemVer 2.0 规范 11.4）。
+// 逐点分隔段比较：纯数字段按数值比较，非纯数字段按字典序比较；
+// 数字段优先级低于非数字段；无预发布者优先级最高。
 func comparePrerelease(a, b string) int {
 	if a == "" && b == "" {
 		return 0
@@ -102,11 +103,55 @@ func comparePrerelease(a, b string) int {
 	if b == "" {
 		return -1
 	}
-	if a == b {
-		return 0
+
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	minLen := len(aParts)
+	if len(bParts) < minLen {
+		minLen = len(bParts)
 	}
-	if a < b {
+
+	for i := 0; i < minLen; i++ {
+		ai, aIsNum := partToNum(aParts[i])
+		bi, bIsNum := partToNum(bParts[i])
+
+		if aIsNum && bIsNum {
+			if ai < bi {
+				return -1
+			}
+			if ai > bi {
+				return 1
+			}
+		} else if aIsNum {
+			// 数字段优先级低于非数字段
+			return -1
+		} else if bIsNum {
+			return 1
+		} else {
+			if aParts[i] < bParts[i] {
+				return -1
+			}
+			if aParts[i] > bParts[i] {
+				return 1
+			}
+		}
+	}
+
+	// 较短的预发布标识优先级更高（更少的段意味着更接近正式版）
+	if len(aParts) < len(bParts) {
 		return -1
 	}
-	return 1
+	if len(aParts) > len(bParts) {
+		return 1
+	}
+	return 0
+}
+
+// partToNum 将预发布段转为数字（若为纯数字），返回值和是否为数字。
+func partToNum(s string) (int, bool) {
+	n, err := strconv.Atoi(s)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }

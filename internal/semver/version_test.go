@@ -87,6 +87,31 @@ func TestNormalize(t *testing.T) {
 	}
 }
 
+func TestCompare_prereleaseSegmentCompare(t *testing.T) {
+	tests := []struct {
+		a, b string
+		want int
+	}{
+		// Numeric identifiers: 10 > 2
+		{"1.0.0-alpha.10", "1.0.0-alpha.2", 1},
+		{"1.0.0-alpha.2", "1.0.0-alpha.10", -1},
+		// Numeric < non-numeric
+		{"1.0.0-1.alpha", "1.0.0-alpha.1", -1},
+		{"1.0.0-alpha.1", "1.0.0-1.alpha", 1},
+		// Same prefix, different lengths
+		{"1.0.0-alpha", "1.0.0-alpha.1", -1},
+		{"1.0.0-alpha.1", "1.0.0-alpha", 1},
+		// Same prerelease
+		{"1.0.0-beta.1", "1.0.0-beta.1", 0},
+	}
+	for _, tt := range tests {
+		got := Compare(tt.a, tt.b)
+		if got != tt.want {
+			t.Errorf("Compare(%q, %q) = %d, want %d", tt.a, tt.b, got, tt.want)
+		}
+	}
+}
+
 func TestCompareTransitive(t *testing.T) {
 	// 兼容性：原 selfupdate.CompareVersions 的所有测试用例确保无回归
 	legacyTests := []struct {
