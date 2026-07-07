@@ -3,16 +3,9 @@ package hooks
 import (
 	"encoding/json"
 	"strings"
-	"sync"
 )
 
 const maxStringLen = 512
-
-// mapPool 用于 redactPath 中 map[interface{}]interface{} 转 map[string]any 时复用。
-// 大容量 map 不归还池以避免内存泄漏。
-var mapPool = sync.Pool{
-	New: func() any { return make(map[string]any, 8) },
-}
 
 func RedactPayload(raw []byte, fields []string) (map[string]any, error) {
 	if len(raw) == 0 {
@@ -59,12 +52,10 @@ func redactPath(cur map[string]any, parts []string) {
 	case map[string]any:
 		redactPath(v, parts[1:])
 	case map[interface{}]interface{}:
-		// YAML解析可能产生 map[interface{}]interface{}，转为 map[string]any
-		m := mapPool.Get().(map[string]any)
-		// 清空复用 map
-		for k := range m {
-			delete(m, k)
-		}
+		// YAML解析可能产生 map[interface{}]interface{}，转为 map[string]any。
+		// 不使用 sync.Pool：池化的 map 被赋值给 cur[key] 后再 Put 回池，
+		// 后续 Get 会复用同一 map 并清空它，导致调用方仍引用的结果被静默清空。
+		m := make(map[string]any, len(v))
 		for k, val := range v {
 			if ks, ok := k.(string); ok {
 				m[ks] = val
@@ -72,10 +63,6 @@ func redactPath(cur map[string]any, parts []string) {
 		}
 		redactPath(m, parts[1:])
 		cur[key] = m
-		// 小 map 归还池，大 map 不归还避免内存占留
-		if len(m) <= 64 {
-			mapPool.Put(m)
-		}
 	}
 }
 
