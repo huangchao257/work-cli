@@ -17,12 +17,14 @@ const defaultCheckInterval = 2 * time.Hour
 type Config struct {
 	Enabled       bool
 	CheckInterval time.Duration
+	Channel       string // "stable" 或 "beta"，默认 "stable"
 }
 
 type fileConfig struct {
 	SelfUpdate struct {
 		Enabled       *bool  `yaml:"enabled"`
 		CheckInterval string `yaml:"check_interval"`
+		Channel       string `yaml:"channel"`
 	} `yaml:"self_update"`
 }
 
@@ -53,6 +55,9 @@ func LoadConfig() (Config, error) {
 		}
 		cfg.CheckInterval = d
 	}
+	if fc.SelfUpdate.Channel != "" {
+		cfg.Channel = fc.SelfUpdate.Channel
+	}
 	return applyEnv(cfg), nil
 }
 
@@ -60,19 +65,34 @@ func defaultConfig() Config {
 	return Config{
 		Enabled:       true,
 		CheckInterval: defaultCheckInterval,
+		Channel:       "stable",
 	}
 }
 
 func applyEnv(cfg Config) Config {
-	v, ok := os.LookupEnv("WORK_AUTO_UPDATE")
-	if !ok {
-		return cfg
+	if v, ok := os.LookupEnv("WORK_AUTO_UPDATE"); ok {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "on":
+			cfg.Enabled = true
+		case "0", "false", "no", "off":
+			cfg.Enabled = false
+		}
 	}
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "1", "true", "yes", "on":
-		cfg.Enabled = true
-	case "0", "false", "no", "off":
-		cfg.Enabled = false
+	if ch := os.Getenv("WORK_SELF_UPDATE_CHANNEL"); ch != "" {
+		ch = strings.ToLower(strings.TrimSpace(ch))
+		if ch == "beta" || ch == "stable" {
+			cfg.Channel = ch
+		}
 	}
 	return cfg
+}
+
+// ValidateChannel 校验更新通道是否合法。
+func ValidateChannel(ch string) error {
+	switch ch {
+	case "stable", "beta":
+		return nil
+	default:
+		return fmt.Errorf("未知更新通道: %s（支持 stable 或 beta）", ch)
+	}
 }
