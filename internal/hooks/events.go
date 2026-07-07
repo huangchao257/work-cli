@@ -84,108 +84,39 @@ func isValidAbstractEvent(e string) bool {
 }
 
 // BindingsForIDE returns hook bindings for the given IDE and abstract events.
+// It reads event bindings from the platform IDE registry, replacing the former
+// switch-based cursorBindings/settingsBindings/bindingsForAbstract functions.
 func BindingsForIDE(ide string, events []string) ([]Binding, []string) {
+	info := platform.LookupIDE(platform.IDE(ide))
+	if info == nil {
+		return nil, []string{fmt.Sprintf("未知 IDE: %s", ide)}
+	}
 	var bindings []Binding
 	var warnings []string
 	for _, ev := range events {
-		b, warn := bindingsForAbstract(ide, ev)
-		if warn != "" {
-			warnings = append(warnings, warn)
+		eventBindings, ok := info.Events[ev]
+		if !ok || len(eventBindings) == 0 {
+			warnings = append(warnings, fmt.Sprintf("%s 不支持事件 %s，已跳过", ide, ev))
 			continue
 		}
-		bindings = append(bindings, b...)
+		for _, eb := range eventBindings {
+			bindings = append(bindings, Binding{IDEEvent: eb.Event, Matcher: eb.Matcher})
+		}
 	}
 	return bindings, warnings
 }
 
-func bindingsForAbstract(ide, abstract string) ([]Binding, string) {
-	switch ide {
-	case "cursor":
-		return cursorBindings(abstract)
-	case "qoder", "claude":
-		return settingsBindings(ide, abstract)
-	default:
-		return nil, fmt.Sprintf("未知 IDE: %s", ide)
-	}
-}
-
-func cursorBindings(abstract string) ([]Binding, string) {
-	switch abstract {
-	case EventShell:
-		return []Binding{
-			{IDEEvent: "beforeShellExecution"},
-			{IDEEvent: "afterShellExecution"},
-		}, ""
-	case EventMCP:
-		return []Binding{
-			{IDEEvent: "beforeMCPExecution"},
-			{IDEEvent: "afterMCPExecution"},
-		}, ""
-	case EventFileRead:
-		return []Binding{{IDEEvent: "beforeReadFile"}}, ""
-	case EventFileEdit:
-		return []Binding{{IDEEvent: "afterFileEdit"}}, ""
-	case EventPrompt:
-		return []Binding{{IDEEvent: "beforeSubmitPrompt"}}, ""
-	case EventSession:
-		return []Binding{
-			{IDEEvent: "sessionStart"},
-			{IDEEvent: "sessionEnd"},
-		}, ""
-	case EventTool:
-		return []Binding{
-			{IDEEvent: "preToolUse"},
-			{IDEEvent: "postToolUse"},
-		}, ""
-	default:
-		return nil, fmt.Sprintf("未知抽象事件: %s", abstract)
-	}
-}
-
-func settingsBindings(ide, abstract string) ([]Binding, string) {
-	switch abstract {
-	case EventShell:
-		return []Binding{
-			{IDEEvent: "PreToolUse", Matcher: "Bash"},
-			{IDEEvent: "PostToolUse", Matcher: "Bash"},
-		}, ""
-	case EventMCP:
-		return []Binding{
-			{IDEEvent: "PreToolUse", Matcher: "MCP.*|mcp__.*"},
-			{IDEEvent: "PostToolUse", Matcher: "MCP.*|mcp__.*"},
-		}, ""
-	case EventFileRead:
-		return []Binding{{IDEEvent: "PreToolUse", Matcher: "Read"}}, ""
-	case EventFileEdit:
-		return []Binding{{IDEEvent: "PostToolUse", Matcher: "Write|Edit"}}, ""
-	case EventPrompt:
-		return []Binding{{IDEEvent: "UserPromptSubmit"}}, ""
-	case EventSession:
-		if ide == "qoder" {
-			return nil, "Qoder 不支持 session 事件，已跳过"
-		}
-		return []Binding{
-			{IDEEvent: "SessionStart"},
-			{IDEEvent: "SessionEnd"},
-		}, ""
-	case EventTool:
-		return []Binding{
-			{IDEEvent: "PreToolUse"},
-			{IDEEvent: "PostToolUse"},
-		}, ""
-	default:
-		return nil, fmt.Sprintf("未知抽象事件: %s", abstract)
-	}
-}
-
-// AbstractForIDEReport maps IDE event back to abstract name when possible.
+// AbstractForIDEReport maps an IDE-specific event name back to the abstract
+// event name when possible, using the platform IDE registry's event bindings.
 func AbstractForIDEReport(ide, ideEvent string) string {
-	events := []string{EventShell, EventMCP, EventFileRead, EventFileEdit, EventPrompt, EventSession, EventTool}
-	for _, ev := range events {
-		bindings, _ := bindingsForAbstract(ide, ev)
+	info := platform.LookupIDE(platform.IDE(ide))
+	if info == nil {
+		return ideEvent
+	}
+	for abstract, bindings := range info.Events {
 		for _, b := range bindings {
-			if strings.EqualFold(b.IDEEvent, ideEvent) {
-				return ev
+			if strings.EqualFold(b.Event, ideEvent) {
+				return abstract
 			}
 		}
 	}
