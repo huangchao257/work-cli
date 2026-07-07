@@ -217,7 +217,10 @@ func rewriteQueue(mutate func(*QueueEntry) bool) error {
 		return fmt.Errorf("原子替换队列文件失败: %w", err)
 	}
 	cleanup = false
-	return updatePendingCount()
+	// 尽力更新同步状态元数据；失败不阻塞（队列数据已正确持久化）。
+	// 下一次 AppendQueue 或 ReadPending 调用会自动修正 PendingCount。
+	_ = updatePendingCount()
+	return nil
 }
 
 func LoadSyncState() (SyncState, error) {
