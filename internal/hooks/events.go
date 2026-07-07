@@ -3,17 +3,20 @@ package hooks
 import (
 	"fmt"
 	"strings"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 // Abstract event names used in hooks.yaml and config.
+// 保持向后兼容的常量别名，实际定义在 platform 包。
 const (
-	EventShell    = "shell"
-	EventMCP      = "mcp"
-	EventFileRead = "file_read"
-	EventFileEdit = "file_edit"
-	EventPrompt   = "prompt"
-	EventSession  = "session"
-	EventTool     = "tool"
+	EventShell    = platform.EventShell
+	EventMCP      = platform.EventMCP
+	EventFileRead = platform.EventFileRead
+	EventFileEdit = platform.EventFileEdit
+	EventPrompt   = platform.EventPrompt
+	EventSession  = platform.EventSession
+	EventTool     = platform.EventTool
 )
 
 const (

@@ -109,9 +109,3 @@ func genericRulePath(ide platform.IDE) func(scope, ruleID string) (string, error
 		return platform.RuleFile(ide, scope, ruleID)
 	}
 }
-
-// dirExists 检查路径是否存在且为目录。
-func dirExists(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
-}
