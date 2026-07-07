@@ -47,49 +47,11 @@ func RuleDir(ide IDE, scope string) (string, error) {
 }
 
 func MCPConfigPath(ide IDE, scope string) (string, error) {
-	switch ide {
-	case IDECursor:
-		if scope == "project" {
-			root, err := ProjectRoot()
-			if err != nil {
-				return "", err
-			}
-			return filepath.Join(root, ".cursor", "mcp.json"), nil
-		}
-		home, err := UserHome()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, ".cursor", "mcp.json"), nil
-	case IDEQoder:
-		if scope == "project" {
-			root, err := ProjectRoot()
-			if err != nil {
-				return "", err
-			}
-			return filepath.Join(root, ".qoder", "mcp.json"), nil
-		}
-		home, err := UserHome()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, ".qoder", "mcp.json"), nil
-	case IDEClaude:
-		if scope == "project" {
-			root, err := ProjectRoot()
-			if err != nil {
-				return "", err
-			}
-			return filepath.Join(root, ".claude", "mcp.json"), nil
-		}
-		home, err := UserHome()
-		if err != nil {
-			return "", err
-		}
-		return filepath.Join(home, ".claude", "mcp.json"), nil
-	default:
-		return "", errUnknownIDE(ide)
+	base, err := ideBase(ide, scope)
+	if err != nil {
+		return "", err
 	}
+	return filepath.Join(base, "mcp.json"), nil
 }
 
 func ideBase(ide IDE, scope string) (string, error) {
