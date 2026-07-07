@@ -30,9 +30,9 @@ var versionCmd = &cobra.Command{
 			return nil
 		}
 		cfg, _ := selfupdate.LoadConfig()
-			updater := selfupdate.NewUpdater(Version)
-			updater.Channel = cfg.Channel
-			res, err := updater.Check(signalContext())
+		updater := selfupdate.NewUpdater(Version)
+		updater.Channel = cfg.Channel
+		res, err := updater.Check(signalContext())
 		if err != nil {
 			log.Warnf("[work]", "检查更新失败: %v", err)
 			return nil

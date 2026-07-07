@@ -83,20 +83,20 @@ func (a *baseAdapter) Uninstall(ctx context.Context, rec state.BundleRecord, sco
 		if err != nil {
 			return fmt.Errorf("定位 MCP 配置失败: %w", err)
 		}
-			err = withMCPLock(mcpPath, func(existing []byte) ([]byte, error) {
-				out := existing
-				for _, id := range rec.Resources.MCP {
-					var rmErr error
-					out, rmErr = RemoveMCPServer(out, id)
-					if rmErr != nil {
-						return nil, fmt.Errorf("移除 MCP server %s 失败: %w", id, rmErr)
-					}
+		err = withMCPLock(mcpPath, func(existing []byte) ([]byte, error) {
+			out := existing
+			for _, id := range rec.Resources.MCP {
+				var rmErr error
+				out, rmErr = RemoveMCPServer(out, id)
+				if rmErr != nil {
+					return nil, fmt.Errorf("移除 MCP server %s 失败: %w", id, rmErr)
 				}
-				return out, nil
-			})
-			if err != nil {
-				return err
 			}
+			return out, nil
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil

@@ -9,10 +9,10 @@ type EventBinding struct {
 // IDEInfo 描述一个 IDE 的所有元数据，取代 hooks/paths.go 和 hooks/events.go 中的 switch 块。
 type IDEInfo struct {
 	ID          IDE
-	DotDir      string                    // ".cursor", ".qoder", ".claude"
-	HooksFile   string                    // "hooks.json" 或 "settings.json"
-	RulesSubdir string                    // "rules" 或 ""（Claude 无 rules 子目录）
-	RuleExt     string                    // ".mdc" 或 ".md"
+	DotDir      string // ".cursor", ".qoder", ".claude"
+	HooksFile   string // "hooks.json" 或 "settings.json"
+	RulesSubdir string // "rules" 或 ""（Claude 无 rules 子目录）
+	RuleExt     string // ".mdc" 或 ".md"
 	DetectFn    func() bool
 	Events      map[string][]EventBinding // 抽象事件名 → IDE 事件绑定列表
 }
