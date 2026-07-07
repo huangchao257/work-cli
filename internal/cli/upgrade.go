@@ -13,6 +13,7 @@ var (
 	upgradeDryRun    bool
 	upgradeCheckOnly bool
 	upgradeVersion   string
+	upgradeChannel   string
 )
 
 var upgradeCmd = &cobra.Command{
@@ -29,7 +30,11 @@ var upgradeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, _ := selfupdate.LoadConfig()
 		updater := selfupdate.NewUpdater(Version)
-		updater.Channel = cfg.Channel
+		channel := upgradeChannel
+		if channel == "" {
+			channel = cfg.Channel
+		}
+		updater.Channel = channel
 		ctx := signalContext()
 
 		if upgradeCheck || upgradeCheckOnly {
@@ -85,5 +90,6 @@ func init() {
 	upgradeCmd.Flags().BoolVar(&upgradeCheckOnly, "check-only", false, "仅检查是否有新版本（不下载）")
 	upgradeCmd.Flags().BoolVar(&upgradeDryRun, "dry-run", false, "仅预览将执行的更新")
 	upgradeCmd.Flags().StringVar(&upgradeVersion, "version", "", "更新到指定版本（如 v0.2.0）")
+	upgradeCmd.Flags().StringVar(&upgradeChannel, "channel", "", "更新通道：stable 或 beta（默认从配置读取）")
 	rootCmd.AddCommand(upgradeCmd)
 }
