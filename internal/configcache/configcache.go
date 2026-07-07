@@ -42,16 +42,12 @@ func ReadFile(path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// 以实际读取后的 mtime 为准，避免 os.Stat 与 os.ReadFile 之间
-	// 文件被外部修改导致的 mtime 不一致。
-	info2, err := os.Stat(path)
-	if err == nil {
-		mtime = info2.ModTime().UnixNano()
-	}
 
 	mu.Lock()
 	// 双重检查：释放 RLock 与获取 Lock 之间可能有其他 goroutine
 	// 基于更新的 mtime 写入了更新的缓存，此时应保留较新的缓存。
+	// 注意：始终使用读盘前的 mtime 作为缓存键，避免 os.Stat 与 os.ReadFile
+	// 之间文件被外部修改导致旧内容被存入新 mtime（TOCTOU）。
 	if existing, ok := store[path]; ok && existing.modTime >= mtime {
 		mu.Unlock()
 		return data, nil
