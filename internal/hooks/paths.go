@@ -9,36 +9,15 @@ import (
 )
 
 func HooksConfigPath(ide, scope string) (string, error) {
-	if scope == "project" {
-		root, err := platform.ProjectRoot()
-		if err != nil {
-			return "", err
-		}
-		switch ide {
-		case "cursor":
-			return filepath.Join(root, ".cursor", "hooks.json"), nil
-		case "qoder":
-			return filepath.Join(root, ".qoder", "settings.json"), nil
-		case "claude":
-			return filepath.Join(root, ".claude", "settings.json"), nil
-		default:
-			return "", fmt.Errorf("未知 IDE: %s", ide)
-		}
+	info := platform.LookupIDE(platform.IDE(ide))
+	if info == nil {
+		return "", fmt.Errorf("未知 IDE: %s", ide)
 	}
-	home, err := platform.UserHome()
+	base, err := ideHooksBase(ide, scope)
 	if err != nil {
 		return "", err
 	}
-	switch ide {
-	case "cursor":
-		return filepath.Join(home, ".cursor", "hooks.json"), nil
-	case "qoder":
-		return filepath.Join(home, ".qoder", "settings.json"), nil
-	case "claude":
-		return filepath.Join(home, ".claude", "settings.json"), nil
-	default:
-		return "", fmt.Errorf("未知 IDE: %s", ide)
-	}
+	return filepath.Join(filepath.Dir(base), info.HooksFile), nil
 }
 
 func HooksScriptDir(ide, scope, kitName string) (string, error) {
@@ -50,39 +29,29 @@ func HooksScriptDir(ide, scope, kitName string) (string, error) {
 }
 
 func ideHooksBase(ide, scope string) (string, error) {
+	info := platform.LookupIDE(platform.IDE(ide))
+	if info == nil {
+		return "", fmt.Errorf("未知 IDE: %s", ide)
+	}
 	if scope == "project" {
 		root, err := platform.ProjectRoot()
 		if err != nil {
 			return "", err
 		}
-		switch ide {
-		case "cursor":
-			return filepath.Join(root, ".cursor", "hooks"), nil
-		case "qoder":
-			return filepath.Join(root, ".qoder", "hooks"), nil
-		case "claude":
-			return filepath.Join(root, ".claude", "hooks"), nil
-		default:
-			return "", fmt.Errorf("未知 IDE: %s", ide)
-		}
+		return filepath.Join(root, info.DotDir, "hooks"), nil
 	}
 	home, err := platform.UserHome()
 	if err != nil {
 		return "", err
 	}
-	switch ide {
-	case "cursor":
-		return filepath.Join(home, ".cursor", "hooks"), nil
-	case "qoder":
-		return filepath.Join(home, ".qoder", "hooks"), nil
-	case "claude":
-		return filepath.Join(home, ".claude", "hooks"), nil
-	default:
-		return "", fmt.Errorf("未知 IDE: %s", ide)
-	}
+	return filepath.Join(home, info.DotDir, "hooks"), nil
 }
 
 func commandPathForIDE(ide, scope, kitName, scriptName string) (string, error) {
+	info := platform.LookupIDE(platform.IDE(ide))
+	if info == nil {
+		return "", fmt.Errorf("未知 IDE: %s", ide)
+	}
 	dir, err := HooksScriptDir(ide, scope, kitName)
 	if err != nil {
 		return "", err
@@ -91,16 +60,17 @@ func commandPathForIDE(ide, scope, kitName, scriptName string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if ide != "cursor" {
+	if info.HooksFile != "hooks.json" { // 非 Cursor 格式：用绝对路径
 		return abs, nil
 	}
+	// Cursor：返回相对路径
 	var base string
 	if scope == "project" {
 		base, err = platform.ProjectRoot()
 	} else {
 		base, err = platform.UserHome()
 		if err == nil {
-			base = filepath.Join(base, ".cursor")
+			base = filepath.Join(base, info.DotDir)
 		}
 	}
 	if err != nil {
