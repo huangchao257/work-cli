@@ -180,10 +180,25 @@ func runBundlePostInstall(ctx context.Context, manifest *bundle.Manifest, opts O
 	if when != "any" && when != opts.Scope {
 		return nil
 	}
-	switch manifest.PostInstall.Action {
+
+	action := manifest.PostInstall.Action
+	if action == "" && manifest.PostInstall.Command != "" {
+		action = "command"
+	}
+
+	switch action {
 	case "graph_init", "":
 		return graph.RunPostInstall(ctx, opts.Scope, opts.DryRun)
+	case "command":
+		if manifest.PostInstall.Command == "" {
+			return fmt.Errorf("post_install.command 不能为空")
+		}
+		if opts.DryRun {
+			fmt.Printf("（预览）将执行 post_install: %s\n", manifest.PostInstall.Command)
+			return nil
+		}
+		return runInDir(ctx, ".", manifest.PostInstall.Command)
 	default:
-		return fmt.Errorf("未知 post_install.action: %s", manifest.PostInstall.Action)
+		return fmt.Errorf("未知 post_install.action: %s（支持 graph_init 或 command）", manifest.PostInstall.Action)
 	}
 }

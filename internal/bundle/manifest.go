@@ -16,7 +16,8 @@ type Manifest struct {
 // PostInstall runs after a successful bundle install (optional).
 type PostInstall struct {
 	WhenScope string `yaml:"when_scope"` // project | user | any (default project)
-	Action    string `yaml:"action"`     // graph_init
+	Action    string `yaml:"action"`     // graph_init | command
+	Command   string `yaml:"command"`    // 任意 shell 命令（当 action 为空或为 "command" 时执行）
 }
 
 type EnvVar struct {
