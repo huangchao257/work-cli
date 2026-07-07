@@ -8,45 +8,37 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/huangchao257/work-cli/internal/hooks"
 )
-
-type cursorHooksFile struct {
-	Version int                          `json:"version"`
-	Hooks   map[string][]cursorHookEntry `json:"hooks"`
-}
-
-type cursorHookEntry struct {
-	Command string `json:"command"`
-	Timeout int    `json:"timeout,omitempty"`
-}
 
 func setupCursorHook(projectRoot, hookScript string) error {
 	hooksPath := filepath.Join(projectRoot, ".cursor", "hooks.json")
 	marker := "codegraph-agents/on-file-edit.sh"
 
-	var cfg cursorHooksFile
+	var cfg hooks.CursorHooksFile
 	if data, err := os.ReadFile(hooksPath); err == nil {
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("解析 hooks.json 失败: %w", err)
 		}
 	} else {
-		cfg = cursorHooksFile{Version: 1, Hooks: map[string][]cursorHookEntry{}}
+		cfg = hooks.CursorHooksFile{Version: 1, Hooks: map[string][]hooks.CursorHookEntry{}}
 	}
 	if cfg.Hooks == nil {
-		cfg.Hooks = map[string][]cursorHookEntry{}
+		cfg.Hooks = map[string][]hooks.CursorHookEntry{}
 	}
 	if cfg.Version == 0 {
 		cfg.Version = 1
 	}
 
-	filtered := make([]cursorHookEntry, 0, len(cfg.Hooks["afterFileEdit"]))
+	filtered := make([]hooks.CursorHookEntry, 0, len(cfg.Hooks["afterFileEdit"]))
 	for _, e := range cfg.Hooks["afterFileEdit"] {
 		if strings.Contains(e.Command, marker) || strings.Contains(e.Command, "on-file-edit.sh") {
 			continue
 		}
 		filtered = append(filtered, e)
 	}
-	filtered = append(filtered, cursorHookEntry{Command: hookScript, Timeout: 15})
+	filtered = append(filtered, hooks.CursorHookEntry{Command: hookScript, Timeout: 15})
 	cfg.Hooks["afterFileEdit"] = filtered
 
 	if err := os.MkdirAll(filepath.Dir(hooksPath), 0o755); err != nil {

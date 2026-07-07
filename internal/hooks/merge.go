@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 )
 
-type cursorHooksFile struct {
+type CursorHooksFile struct {
 	Version int                          `json:"version"`
-	Hooks   map[string][]cursorHookEntry `json:"hooks"`
+	Hooks   map[string][]CursorHookEntry `json:"hooks"`
 }
 
-type cursorHookEntry struct {
+type CursorHookEntry struct {
 	Command string `json:"command"`
 	Timeout int    `json:"timeout,omitempty"`
 }
@@ -33,19 +33,19 @@ type settingsHook struct {
 }
 
 func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
-	var cfg cursorHooksFile
+	var cfg CursorHooksFile
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("读取 Cursor hooks.json 失败: %w", err)
 		}
-		cfg = cursorHooksFile{Version: 1, Hooks: map[string][]cursorHookEntry{}}
+		cfg = CursorHooksFile{Version: 1, Hooks: map[string][]CursorHookEntry{}}
 	} else {
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return fmt.Errorf("解析 Cursor hooks.json 失败: %w", err)
 		}
 		if cfg.Hooks == nil {
-			cfg.Hooks = map[string][]cursorHookEntry{}
+			cfg.Hooks = map[string][]CursorHookEntry{}
 		}
 		if cfg.Version == 0 {
 			cfg.Version = 1
@@ -54,7 +54,7 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 
 	// Remove prior work-managed entries
 	for event, list := range cfg.Hooks {
-		filtered := make([]cursorHookEntry, 0, len(list))
+		filtered := make([]CursorHookEntry, 0, len(list))
 		for _, e := range list {
 			if IsWorkManagedCommand(e.Command) {
 				continue
@@ -69,7 +69,7 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 	}
 
 	for _, ent := range entries {
-		cfg.Hooks[ent.IDEEvent] = append(cfg.Hooks[ent.IDEEvent], cursorHookEntry{
+		cfg.Hooks[ent.IDEEvent] = append(cfg.Hooks[ent.IDEEvent], CursorHookEntry{
 			Command: ent.Command,
 			Timeout: 3,
 		})
@@ -167,12 +167,12 @@ func UnmergeCursorHooks(configPath string) error {
 		}
 		return fmt.Errorf("读取 Cursor hooks.json 失败: %w", err)
 	}
-	var cfg cursorHooksFile
+	var cfg CursorHooksFile
 	if err := json.Unmarshal(data, &cfg); err != nil {
 		return fmt.Errorf("解析 Cursor hooks.json 失败: %w", err)
 	}
 	for event, list := range cfg.Hooks {
-		filtered := make([]cursorHookEntry, 0, len(list))
+		filtered := make([]CursorHookEntry, 0, len(list))
 		for _, e := range list {
 			if IsWorkManagedCommand(e.Command) {
 				continue
