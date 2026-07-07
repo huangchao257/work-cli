@@ -22,28 +22,34 @@ func SkillDir(ide IDE, scope, skillID string) (string, error) {
 }
 
 func RuleFile(ide IDE, scope, ruleID string) (string, error) {
+	info := LookupIDE(ide)
+	if info == nil {
+		return "", errUnknownIDE(ide)
+	}
 	dir, err := RuleDir(ide, scope)
 	if err != nil {
 		return "", err
 	}
-	ext := ".md"
-	if ide == IDECursor {
-		ext = ".mdc"
+	ext := info.RuleExt
+	if ext == "" {
+		ext = ".md"
 	}
 	return filepath.Join(dir, ruleID+ext), nil
 }
 
 func RuleDir(ide IDE, scope string) (string, error) {
+	info := LookupIDE(ide)
+	if info == nil {
+		return "", errUnknownIDE(ide)
+	}
 	base, err := ideBase(ide, scope)
 	if err != nil {
 		return "", err
 	}
-	switch ide {
-	case IDEClaude:
+	if info.RulesSubdir == "" {
 		return base, nil
-	default:
-		return filepath.Join(base, "rules"), nil
 	}
+	return filepath.Join(base, info.RulesSubdir), nil
 }
 
 func MCPConfigPath(ide IDE, scope string) (string, error) {
@@ -55,36 +61,22 @@ func MCPConfigPath(ide IDE, scope string) (string, error) {
 }
 
 func ideBase(ide IDE, scope string) (string, error) {
+	info := LookupIDE(ide)
+	if info == nil {
+		return "", errUnknownIDE(ide)
+	}
 	if scope == "project" {
 		root, err := ProjectRoot()
 		if err != nil {
 			return "", err
 		}
-		switch ide {
-		case IDEQoder:
-			return filepath.Join(root, ".qoder"), nil
-		case IDECursor:
-			return filepath.Join(root, ".cursor"), nil
-		case IDEClaude:
-			return filepath.Join(root, ".claude"), nil
-		default:
-			return "", errUnknownIDE(ide)
-		}
+		return filepath.Join(root, info.DotDir), nil
 	}
 	home, err := UserHome()
 	if err != nil {
 		return "", err
 	}
-	switch ide {
-	case IDEQoder:
-		return filepath.Join(home, ".qoder"), nil
-	case IDECursor:
-		return filepath.Join(home, ".cursor"), nil
-	case IDEClaude:
-		return filepath.Join(home, ".claude"), nil
-	default:
-		return "", errUnknownIDE(ide)
-	}
+	return filepath.Join(home, info.DotDir), nil
 }
 
 type unknownIDEError string
