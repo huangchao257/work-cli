@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/source"
@@ -21,39 +22,55 @@ func (br *BatchResult) Total() int {
 	return len(br.Results)
 }
 
-// InstallBatch 批量安装多个资源，按 args 顺序逐个安装。
+// InstallBatch 批量安装多个资源，并行执行独立安装操作。
 // 失败时不回滚（轻量 CLI 模式），但会收集所有结果一并返回。
 func InstallBatch(ctx context.Context, opts Options, names []string) (*BatchResult, error) {
 	if len(names) == 0 {
 		return nil, fmt.Errorf("至少需要指定一个安装名称")
 	}
 
+	results := make([]Result, len(names))
+	var wg sync.WaitGroup
+	// 信号量限制并发数，避免同时打开过多网络连接
+	sem := make(chan struct{}, 8)
+
+	for i, name := range names {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			ref, err := resolveRef(name)
+			if err != nil {
+				results[i] = Result{
+					Success:  false,
+					Name:     name,
+					Warnings: []string{err.Error()},
+				}
+				return
+			}
+			optsCopy := opts
+			optsCopy.Ref = ref
+			res, err := Install(ctx, optsCopy)
+			if err != nil {
+				res = Result{
+					Success:  false,
+					Name:     name,
+					Warnings: []string{err.Error()},
+				}
+			} else {
+				res.Success = true
+			}
+			results[i] = res
+		}(i, name)
+	}
+	wg.Wait()
+
 	br := &BatchResult{
 		Results: make([]Result, 0, len(names)),
 	}
-	for _, name := range names {
-		ref, err := resolveRef(name)
-		if err != nil {
-			br.Results = append(br.Results, Result{
-				Success:  false,
-				Name:     name,
-				Warnings: []string{err.Error()},
-			})
-			br.Failures++
-			continue
-		}
-		optsCopy := opts
-		optsCopy.Ref = ref
-		res, err := Install(ctx, optsCopy)
-		if err != nil {
-			res = Result{
-				Success:  false,
-				Name:     name,
-				Warnings: []string{err.Error()},
-			}
-		} else {
-			res.Success = true
-		}
+	for _, res := range results {
 		if res.Success {
 			br.Successes++
 		} else {
@@ -81,20 +98,36 @@ func UninstallAll(ctx context.Context, scope, kindFilter string, dryRun bool) (*
 		return nil, fmt.Errorf("没有已安装的%s资源", desc)
 	}
 
+	results := make([]Result, len(recs))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+
+	for i, rec := range recs {
+		wg.Add(1)
+		go func(i int, rec state.BundleRecord) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res, err := Uninstall(ctx, rec.Name, rec.Scope, dryRun)
+			if err != nil {
+				res = Result{
+					Success:  false,
+					Name:     rec.Name,
+					Warnings: []string{err.Error()},
+				}
+			} else {
+				res.Success = true
+			}
+			results[i] = res
+		}(i, rec)
+	}
+	wg.Wait()
+
 	br := &BatchResult{
 		Results: make([]Result, 0, len(recs)),
 	}
-	for _, rec := range recs {
-		res, err := Uninstall(ctx, rec.Name, rec.Scope, dryRun)
-		if err != nil {
-			res = Result{
-				Success:  false,
-				Name:     rec.Name,
-				Warnings: []string{err.Error()},
-			}
-		} else {
-			res.Success = true
-		}
+	for _, res := range results {
 		if res.Success {
 			br.Successes++
 		} else {
@@ -114,20 +147,36 @@ func UninstallBatch(ctx context.Context, names []string, scope string, dryRun bo
 		scope = "user"
 	}
 
+	results := make([]Result, len(names))
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+
+	for i, name := range names {
+		wg.Add(1)
+		go func(i int, name string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			res, err := Uninstall(ctx, name, scope, dryRun)
+			if err != nil {
+				res = Result{
+					Success:  false,
+					Name:     name,
+					Warnings: []string{err.Error()},
+				}
+			} else {
+				res.Success = true
+			}
+			results[i] = res
+		}(i, name)
+	}
+	wg.Wait()
+
 	br := &BatchResult{
 		Results: make([]Result, 0, len(names)),
 	}
-	for _, name := range names {
-		res, err := Uninstall(ctx, name, scope, dryRun)
-		if err != nil {
-			res = Result{
-				Success:  false,
-				Name:     name,
-				Warnings: []string{err.Error()},
-			}
-		} else {
-			res.Success = true
-		}
+	for _, res := range results {
 		if res.Success {
 			br.Successes++
 		} else {
