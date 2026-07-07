@@ -53,16 +53,10 @@ func installMCPAt(bundleRoot string, mcp bundle.MCPResource, configPath string) 
 		return "", fmt.Errorf("解析 MCP %s 失败: %w", mcp.ID, err)
 	}
 	// 使用文件锁防止多个 work 进程同时修改同一 MCP 配置文件导致数据损坏
-	merged, err := withMCPLock(configPath, func(existing []byte) ([]byte, error) {
+	// withMCPLock 内部完成 read-merge-write，全程持有锁
+	if err := withMCPLock(configPath, func(existing []byte) ([]byte, error) {
 		return MergeMCPServers(existing, mcp.ID, server)
-	})
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(configPath, merged, 0o644); err != nil {
+	}); err != nil {
 		return "", err
 	}
 	return configPath, nil
@@ -105,27 +99,36 @@ func qoderRuleFrontMatter(rule bundle.RuleResource) string {
 	return b.String()
 }
 
-// withMCPLock 对指定路径的 MCP 配置文件加独占锁，读取并调用 fn 合并内容，
-// 返回合并结果。用于防止多个 work 进程同时修改同一 MCP 配置文件导致数据损坏。
-func withMCPLock(configPath string, fn func(existing []byte) ([]byte, error)) ([]byte, error) {
+// withMCPLock 对指定路径的 MCP 配置文件加独占锁，读取、合并并写入内容。
+// 全程持有锁，防止多个 work 进程同时修改同一 MCP 配置文件导致数据损坏。
+func withMCPLock(configPath string, fn func(existing []byte) ([]byte, error)) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return nil, fmt.Errorf("创建 MCP 配置目录失败: %w", err)
+		return fmt.Errorf("创建 MCP 配置目录失败: %w", err)
 	}
 	f, err := os.OpenFile(configPath, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
-		return nil, fmt.Errorf("打开 MCP 配置文件失败: %w", err)
+		return fmt.Errorf("打开 MCP 配置文件失败: %w", err)
 	}
 	defer f.Close()
 
 	if err := platform.FlockLock(f, configPath, platform.FlockEX); err != nil {
-		return nil, fmt.Errorf("获取 MCP 配置文件独占锁失败: %w", err)
+		return fmt.Errorf("获取 MCP 配置文件独占锁失败: %w", err)
 	}
 	defer func() { _ = platform.FlockUnlock(f) }()
 
 	existing, err := os.ReadFile(configPath)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("读取 MCP 配置文件失败: %w", err)
+		return fmt.Errorf("读取 MCP 配置文件失败: %w", err)
 	}
 
-	return fn(existing)
+	merged, err := fn(existing)
+	if err != nil {
+		return err
+	}
+
+	// 写入在锁内执行，保证整个 read-modify-write 是原子的
+	if err := os.WriteFile(configPath, merged, 0o644); err != nil {
+		return fmt.Errorf("写入 MCP 配置文件失败: %w", err)
+	}
+	return nil
 }
