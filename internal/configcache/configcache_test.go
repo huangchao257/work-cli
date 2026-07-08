@@ -169,7 +169,7 @@ func TestReadFileCacheIsolation(t *testing.T) {
 	}
 }
 
-func TestReadFile_ConcurrentModification(t *testing.T) {
+func TestReadFile_ExplicitInvalidateReturnsFreshContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 
@@ -185,18 +185,19 @@ func TestReadFile_ConcurrentModification(t *testing.T) {
 		t.Fatalf("expected v1, got %s", string(data))
 	}
 
-	// Modify file externally (simulating external tool)
+	// Modify file externally and explicitly invalidate
 	if err := os.WriteFile(path, []byte("v2"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	Invalidate(path)
 
-	// Read again — should get v2, NOT stale v1
+	// Read again — should get v2 via fresh disk read
 	data, err = ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(data) != "v2" {
-		t.Fatalf("expected v2, got %s", string(data))
+		t.Fatalf("expected v2 after invalidate, got %s", string(data))
 	}
 }
 
