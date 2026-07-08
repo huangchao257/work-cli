@@ -53,7 +53,7 @@ func collectStatus(ctx context.Context, root string) (Status, error) {
 	if _, err := exec.LookPath("codegraph"); err != nil {
 		return st, nil
 	}
-	cmd := exec.CommandContext(ctx, "codegraph", "status", "--json", "-p", root)
+	cmd := exec.CommandContext(ctx, "codegraph", "status", "--json", root)
 	out, err := cmd.Output()
 	if err == nil {
 		st.Codegraph = json.RawMessage(out)

@@ -117,7 +117,7 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 		if !quiet {
 			fmt.Println("正在初始化 CodeGraph 索引...")
 		}
-		cmd := exec.Command("codegraph", "init", "-i", "-p", root)
+		cmd := exec.Command("codegraph", "init", root)
 		cmd.Dir = root
 		if quiet {
 			cmd.Stdout = nil
@@ -131,7 +131,7 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 		}
 		return nil
 	}
-	cmd := exec.Command("codegraph", "sync", "-p", root)
+	cmd := exec.Command("codegraph", "sync", root)
 	cmd.Dir = root
 	// sync 是幂等的预同步，失败时不应阻断后续流程；记录到 stderr 供排查
 	if err := cmd.Run(); err != nil && !quiet {
@@ -141,7 +141,7 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 }
 
 func codegraphStatus(root string) (map[string]any, error) {
-	cmd := exec.Command("codegraph", "status", "--json", "-p", root)
+	cmd := exec.Command("codegraph", "status", "--json", root)
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

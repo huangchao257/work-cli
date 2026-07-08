@@ -141,7 +141,7 @@ func isSourceFile(path string) bool {
 
 // codegraphSync 执行 codegraph sync，失败时静默。
 func codegraphSync(root string) {
-	cmd := exec.Command("codegraph", "sync", "-q", "-p", root)
+	cmd := exec.Command("codegraph", "sync", "-q", root)
 	cmd.Dir = root
 	cmd.Stdout = nil
 	cmd.Stderr = nil
