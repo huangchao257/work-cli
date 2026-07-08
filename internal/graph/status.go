@@ -4,10 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
-	"strings"
 )
 
 // PrintStatus 输出 CodeGraph 与 AGENTS 自动同步状态。
@@ -40,18 +37,10 @@ func PrintStatus(ctx context.Context, opts Options, w ioWriter) error {
 	} else {
 		fmt.Fprintln(w, "CodeGraph: 无法读取状态")
 	}
-	if st.SkillInstalled {
-		fmt.Fprintln(w, "技能包: codegraph-agents 已安装")
+	if st.Watching {
+		fmt.Fprintln(w, "generate-agents.sh: 已安装（可运行 work graph watch 开启文件监控）")
 	} else {
-		fmt.Fprintln(w, "技能包: 未安装（运行 work install codegraph-kit --scope project）")
-	}
-	if st.AgentsHook {
-		fmt.Fprintln(w, "AGENTS 自动同步: 已开启（保存代码后约 2s 更新）")
-	} else {
-		fmt.Fprintln(w, "AGENTS 自动同步: 未开启（运行 work graph init）")
-	}
-	if st.AgentsLog != "" {
-		fmt.Fprintf(w, "最近同步日志: %s\n", st.AgentsLog)
+		fmt.Fprintln(w, "generate-agents.sh: 未安装（运行 work install codegraph-kit --scope project）")
 	}
 	return nil
 }
@@ -59,15 +48,8 @@ func PrintStatus(ctx context.Context, opts Options, w ioWriter) error {
 // collectStatus 收集 CodeGraph 与 AGENTS 同步状态。
 func collectStatus(ctx context.Context, root string) (Status, error) {
 	st := Status{ProjectPath: root}
-	st.SkillInstalled = skillInstalled(root)
-	st.AgentsHook = hookConfigured(root)
-	logPath := filepath.Join(root, ".codegraph", "agents-sync", "sync.log")
-	if data, err := os.ReadFile(logPath); err == nil && len(data) > 0 {
-		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
-		if len(lines) > 0 {
-			st.AgentsLog = lines[len(lines)-1]
-		}
-	}
+	_, err := findScript(root, "generate-agents.sh")
+	st.Watching = err == nil
 	if _, err := exec.LookPath("codegraph"); err != nil {
 		return st, nil
 	}
@@ -77,9 +59,4 @@ func collectStatus(ctx context.Context, root string) (Status, error) {
 		st.Codegraph = json.RawMessage(out)
 	}
 	return st, nil
-}
-
-func skillInstalled(projectRoot string) bool {
-	_, err := findScript(projectRoot, "generate-agents.sh")
-	return err == nil
 }

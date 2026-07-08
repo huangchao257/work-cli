@@ -24,11 +24,9 @@ type Options struct {
 
 // Status summarizes CodeGraph and AGENTS auto-sync state.
 type Status struct {
-	ProjectPath    string          `json:"projectPath"`
-	Codegraph      json.RawMessage `json:"codegraph,omitempty"`
-	AgentsHook     bool            `json:"agentsHook"`
-	AgentsLog      string          `json:"agentsLog,omitempty"`
-	SkillInstalled bool            `json:"skillInstalled"`
+	ProjectPath string          `json:"projectPath"`
+	Codegraph   json.RawMessage `json:"codegraph,omitempty"`
+	Watching    bool            `json:"watching"`
 }
 
 type ioWriter interface {
@@ -42,24 +40,16 @@ func Init(ctx context.Context, opts Options) error {
 	}
 	if opts.DryRun {
 		fmt.Printf("（预览）将在 %s 执行 graph init\n", root)
-		fmt.Println("  - codegraph init -i")
-		fmt.Println("  - 配置 .cursor/hooks.json 自动同步")
+		fmt.Println("  - codegraph init")
 		fmt.Println("  - 生成各目录 AGENTS.md")
 		return nil
 	}
 	if err := ensureCodegraph(root, true, opts.Quiet); err != nil {
 		return err
 	}
-	script, err := findScript(root, "on-file-edit.sh")
-	if err != nil {
-		return fmt.Errorf("未找到 codegraph-agents 技能，请先执行: work install codegraph-kit --scope project\n%w", err)
-	}
-	if err := setupCursorHook(root, script); err != nil {
-		return fmt.Errorf("配置 Cursor hooks 失败: %w", err)
-	}
 	gen, err := findScript(root, "generate-agents.sh")
 	if err != nil {
-		return fmt.Errorf("未找到 generate-agents.sh 脚本: %w", err)
+		return fmt.Errorf("未找到 generate-agents.sh，请先执行: work install codegraph-kit --scope project\n%w", err)
 	}
 	if !opts.Quiet {
 		fmt.Println("正在生成 AGENTS.md ...")
@@ -72,7 +62,7 @@ func Init(ctx context.Context, opts Options) error {
 		return fmt.Errorf("生成 AGENTS.md 失败: %w", err)
 	}
 	if !opts.Quiet {
-		fmt.Println("✓ 知识图谱与 AGENTS.md 已就绪；保存代码后将自动更新（约 2 秒）")
+		fmt.Println("✓ 知识图谱与 AGENTS.md 已就绪；运行 work graph watch 开启文件监控自动更新")
 	}
 	return nil
 }
