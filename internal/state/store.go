@@ -293,6 +293,13 @@ func atomicWrite(path string, f *File) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("关闭临时状态文件失败: %w", err)
 	}
+	// Windows: os.Rename 在目标文件存在时失败（Access denied）。
+	// 先 Remove 后 Rename 破坏了 Unix 的 rename-over 原子性，
+	// 但 Windows 文件系统本身不支持 POSIX 原子 rename-over，
+	// 同时本路径已受 withLock 独占锁保护，不存在并发写入窗口。
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("移除旧状态文件失败: %w", err)
+	}
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("原子写入状态文件失败: %w", err)
 	}

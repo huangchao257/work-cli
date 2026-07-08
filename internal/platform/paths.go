@@ -6,6 +6,12 @@ import (
 )
 
 func UserHome() (string, error) {
+	// HOME 环境变量优先（测试隔离 + 跨平台兼容）。
+	// os.UserHomeDir() 在 Windows 上读 USERPROFILE 而非 HOME，
+	// 导致 t.Setenv("HOME", ...) 在 Windows CI 上对 UserHome() 无效。
+	if h := os.Getenv("HOME"); h != "" {
+		return h, nil
+	}
 	return os.UserHomeDir()
 }
 

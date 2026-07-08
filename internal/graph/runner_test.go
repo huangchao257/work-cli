@@ -23,7 +23,7 @@ func TestSetupCursorHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), hook) {
+	if !strings.Contains(string(data), filepath.ToSlash(hook)) {
 		t.Fatalf("hook path missing: %s", data)
 	}
 }
