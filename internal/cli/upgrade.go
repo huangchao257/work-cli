@@ -35,6 +35,9 @@ var upgradeCmd = &cobra.Command{
 			channel = cfg.Channel
 		}
 		updater.Channel = channel
+		if err := selfupdate.ValidateChannel(channel); err != nil {
+			return exitErr(2, err)
+		}
 		ctx := signalContext()
 
 		if upgradeCheck || upgradeCheckOnly {

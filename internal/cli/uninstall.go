@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/spf13/cobra"
@@ -38,8 +40,9 @@ var uninstallCmd = &cobra.Command{
 			return output.PrintHumanBatch(cmd.OutOrStdout(), br)
 		}
 
-		if len(args) == 0 {
-			return cmd.Help()
+		if len(args) == 0 && !uninstallAll {
+			_ = cmd.Help()
+			return fmt.Errorf("至少需要指定一个卸载名称，或使用 --all")
 		}
 
 		// 快速路径：单个卸载保持原有行为
