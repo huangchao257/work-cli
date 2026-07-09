@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
 )
 
 // PrintStatus 输出 CodeGraph 与 AGENTS 自动同步状态。
-func PrintStatus(ctx context.Context, opts Options, w ioWriter) error {
+func PrintStatus(ctx context.Context, opts Options, w io.Writer) error {
 	root, err := resolveRoot(opts.ProjectPath)
 	if err != nil {
 		return fmt.Errorf("解析项目根目录失败: %w", err)

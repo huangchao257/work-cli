@@ -186,10 +186,10 @@ func kindFromManifestName(name string) (pkgmanifest.Kind, bool) {
 }
 
 // manifestTargets 是支持的 manifest 文件名集合，从 pkgmanifest 中获取。
-func manifestTargetsSet() map[string]bool {
-	m := make(map[string]bool)
+func manifestTargetsSet() map[string]struct{} {
+	m := make(map[string]struct{}, len(pkgmanifest.ManifestFileNames()))
 	for _, n := range pkgmanifest.ManifestFileNames() {
-		m[n] = true
+		m[n] = struct{}{}
 	}
 	return m
 }
@@ -214,7 +214,8 @@ func inspectZip(path string) (string, string, string, error) {
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		if !manifestTargets[filepath.Base(f.Name)] {
+		_, target := manifestTargets[filepath.Base(f.Name)]
+		if !target {
 			continue
 		}
 		// 优先取最浅（根目录）的 manifest
@@ -267,7 +268,8 @@ func inspectTarGz(path string) (string, string, string, error) {
 			continue
 		}
 		base := filepath.Base(hdr.Name)
-		if !manifestTargets[base] {
+		_, target := manifestTargets[base]
+		if !target {
 			continue
 		}
 		data, err := io.ReadAll(tr)

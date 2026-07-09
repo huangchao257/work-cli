@@ -29,10 +29,6 @@ type Status struct {
 	Watching    bool            `json:"watching"`
 }
 
-type ioWriter interface {
-	Write([]byte) (int, error)
-}
-
 func Init(ctx context.Context, opts Options) error {
 	root, err := resolveRoot(opts.ProjectPath)
 	if err != nil {
