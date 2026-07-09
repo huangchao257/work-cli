@@ -1,6 +1,4 @@
 // Package search 实现 work search 命令：列出可安装的资源（内置 catalog + 可选 Registry 远程清单）。
-//
-// 仅依赖 Go 标准库与既有依赖（yaml.v3），与 work list（已安装）互补。
 package search
 
 import (
@@ -8,12 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 
 	"github.com/huangchao257/work-cli/internal/catalog"
 	"github.com/huangchao257/work-cli/internal/pkg/manifest"
@@ -30,9 +25,9 @@ type Item struct {
 
 // Options 控制 Run 的行为。
 type Options struct {
-	Query       string // 子串模糊匹配 name/description，不区分大小写；为空表示不过滤
-	Remote      bool   // 是否同时查询 Registry 远程清单
-	RegistryURL string // Registry 地址；Remote 为 true 时使用
+	Query       string
+	Remote      bool
+	RegistryURL string
 }
 
 // Result 是一次搜索的汇总结果。
@@ -41,16 +36,7 @@ type Result struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// manifestMeta 仅抽取 manifest 中搜索需要的字段。
-// 适用于 bundle.yaml / installer.yaml / hooks.yaml 三种清单。
-type manifestMeta struct {
-	Name        string `yaml:"name"`
-	Version     string `yaml:"version"`
-	Description string `yaml:"description"`
-}
-
-// Run 执行搜索：本地内置 catalog 收集 + 可选 Registry 远程清单，按 query 过滤后返回。
-// 本地或远程收集失败只产生 warning，不返回 error（除非出现不可恢复的内部错误）。
+// Run 执行搜索：本地内置 catalog 收集 + 可选 Registry 远程清单。
 func Run(opts Options) (Result, error) {
 	result := Result{Items: []Item{}, Warnings: []string{}}
 
@@ -81,8 +67,6 @@ func Run(opts Options) (Result, error) {
 	return result, nil
 }
 
-// loadBuiltin 遍历内置 catalog，解析每个内置包的 manifest，返回条目与警告列表。
-// Resolve 失败或 manifest 解析失败的条目跳过并附带 warning。
 func loadBuiltin() ([]Item, []string) {
 	items := []Item{}
 	warnings := []string{}
@@ -100,10 +84,10 @@ func loadBuiltin() ([]Item, []string) {
 			continue
 		}
 
-		manifestFile := manifest.FileName(kind)
-		meta, err := parseManifestMeta(filepath.Join(dir, manifestFile))
+		mf := manifest.FileName(kind)
+		meta, err := manifest.ReadMeta(filepath.Join(dir, mf))
 		if err != nil {
-			warnings = append(warnings, fmt.Sprintf("跳过内置资源 %s: 解析 %s 失败: %v", name, manifestFile, err))
+			warnings = append(warnings, fmt.Sprintf("跳过内置资源 %s: 解析 %s 失败: %v", name, mf, err))
 			continue
 		}
 
@@ -119,20 +103,6 @@ func loadBuiltin() ([]Item, []string) {
 	return items, warnings
 }
 
-// parseManifestMeta 读取并解析 manifest 文件中的 name/version/description。
-func parseManifestMeta(path string) (manifestMeta, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return manifestMeta{}, err
-	}
-	var meta manifestMeta
-	if err := yaml.Unmarshal(data, &meta); err != nil {
-		return manifestMeta{}, err
-	}
-	return meta, nil
-}
-
-// registryEntry 是 Registry GET /bundles 返回数组中的单条记录。
 type registryEntry struct {
 	Name        string `json:"name"`
 	Type        string `json:"type"`
@@ -140,8 +110,6 @@ type registryEntry struct {
 	Description string `json:"description"`
 }
 
-// fetchRegistry 请求 {url}/bundles，返回远程条目（source 标记为 registry）。
-// url 为空时返回 warning「未配置 registry.url，仅显示本地」；请求失败时返回 warning，不阻断。
 func fetchRegistry(url string) ([]Item, string) {
 	if strings.TrimSpace(url) == "" {
 		return nil, "未配置 registry.url，仅显示本地"

@@ -15,7 +15,6 @@ import (
 
 	pkgmanifest "github.com/huangchao257/work-cli/internal/pkg/manifest"
 	"github.com/huangchao257/work-cli/internal/usage"
-	"gopkg.in/yaml.v3"
 )
 
 // Format 表示归档格式。
@@ -136,20 +135,11 @@ func Run(opts Options) (Result, error) {
 	return res, nil
 }
 
-type manifestMeta struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
-}
-
-func readManifestMeta(dir string, kind pkgmanifest.Kind) (manifestMeta, error) {
-	name := manifestFileName(kind)
-	data, err := os.ReadFile(filepath.Join(dir, name))
+func readManifestMeta(dir string, kind pkgmanifest.Kind) (pkgmanifest.Meta, error) {
+	path := filepath.Join(dir, pkgmanifest.FileName(kind))
+	m, err := pkgmanifest.ReadMeta(path)
 	if err != nil {
-		return manifestMeta{}, fmt.Errorf("读取 manifest 失败: %w", err)
-	}
-	var m manifestMeta
-	if err := yaml.Unmarshal(data, &m); err != nil {
-		return manifestMeta{}, usageError("解析 manifest 失败: %w", err)
+		return pkgmanifest.Meta{}, fmt.Errorf("读取 manifest 失败: %w", err)
 	}
 	return m, nil
 }

@@ -168,14 +168,9 @@ func verifyChecksumFile(archive, checksumPath string) error {
 	return nil
 }
 
-type manifestMeta struct {
-	Name    string `yaml:"name"`
-	Version string `yaml:"version"`
-}
-
 // parseManifest 解析 manifest 内容并按文件名映射 type。
 func parseManifest(fileName string, data []byte) (string, string, string, error) {
-	var m manifestMeta
+	var m pkgmanifest.Meta
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return "", "", "", fmt.Errorf("解析 manifest 失败: %w", err)
 	}
