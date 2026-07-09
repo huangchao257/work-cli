@@ -111,8 +111,8 @@ func updateCLI(ctx context.Context, ref source.Ref, rec state.BundleRecord, dryR
 	}
 	rec.Version = manifest.Version
 	rec.InstallCommand = cmd
-	statePath, _ := platform.WorkStatePath("user")
-	store, _ := state.Open(statePath)
-	_ = store.Upsert(rec)
+	if err := saveStateRecord(rec, "user"); err != nil {
+		return Result{}, err
+	}
 	return Result{Success: true, Name: rec.Name, Kind: "cli", Version: manifest.Version, Scope: "user", Commands: []string{cmd}, DryRun: false}, nil
 }

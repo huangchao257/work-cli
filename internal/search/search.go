@@ -100,7 +100,7 @@ func loadBuiltin() ([]Item, []string) {
 			continue
 		}
 
-		manifestFile := manifestFileFor(kind)
+		manifestFile := manifest.FileName(kind)
 		meta, err := parseManifestMeta(filepath.Join(dir, manifestFile))
 		if err != nil {
 			warnings = append(warnings, fmt.Sprintf("跳过内置资源 %s: 解析 %s 失败: %v", name, manifestFile, err))
@@ -117,11 +117,6 @@ func loadBuiltin() ([]Item, []string) {
 	}
 
 	return items, warnings
-}
-
-// manifestFileFor 根据清单类型返回对应的 manifest 文件名。
-func manifestFileFor(kind manifest.Kind) string {
-	return manifest.FileName(kind)
 }
 
 // parseManifestMeta 读取并解析 manifest 文件中的 name/version/description。

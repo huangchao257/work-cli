@@ -258,7 +258,7 @@ func isTransientError(err error) bool {
 	}
 	lower := strings.ToLower(msg)
 	for _, kw := range transientKeywords {
-		if strings.Contains(lower, strings.ToLower(kw)) {
+		if strings.Contains(lower, kw) {
 			return true
 		}
 	}
@@ -372,15 +372,23 @@ func replaceExecutable(dest string, data []byte) error {
 	}
 
 	if runtime.GOOS == "windows" {
-		return replaceWindows(dest, tmpName)
+		return replaceBinary(dest, tmpName, ".old", "Windows 下替换二进制失败，请关闭占用进程后重试")
 	}
 
 	// Unix: 先备份原文件，rename 后若失败则回滚
-	backup := dest + ".backup"
-	// 清理可能残留的旧备份；不存在时 Remove 报错可忽略
+	if err := replaceBinary(dest, tmpName, ".backup", "备份当前二进制失败"); err != nil {
+		return err
+	}
+	cleanup = false
+	return nil
+}
+
+// replaceBinary 原子替换目标二进制：先备份→rename→失败回滚→成功删备份。
+func replaceBinary(dest, tmpName, backupSuffix, errPrefix string) error {
+	backup := dest + backupSuffix
 	_ = os.Remove(backup)
 	if err := os.Rename(dest, backup); err != nil {
-		return fmt.Errorf("备份当前二进制失败: %w", err)
+		return fmt.Errorf("%s: %w", errPrefix, err)
 	}
 	if err := os.Rename(tmpName, dest); err != nil {
 		// 回滚：把备份恢复回去
@@ -389,27 +397,6 @@ func replaceExecutable(dest string, data []byte) error {
 		}
 		return fmt.Errorf("替换二进制失败，已回滚: %w", err)
 	}
-	// 成功后清理备份；失败不影响结果
-	_ = os.Remove(backup)
-	cleanup = false
-	return nil
-}
-
-func replaceWindows(dest, tmpName string) error {
-	backup := dest + ".old"
-	// 清理可能残留的旧备份；不存在时 Remove 报错可忽略
-	_ = os.Remove(backup)
-	if err := os.Rename(dest, backup); err != nil {
-		return fmt.Errorf("Windows 下替换二进制失败，请关闭占用进程后重试: %w", err)
-	}
-	if err := os.Rename(tmpName, dest); err != nil {
-		// 回滚：把备份恢复回去
-		if rerr := os.Rename(backup, dest); rerr != nil {
-			return fmt.Errorf("安装新版本失败且回滚也失败（备份位于 %s）: %w", backup, err)
-		}
-		return fmt.Errorf("安装新版本失败，已回滚: %w", err)
-	}
-	// 成功后清理备份；失败不影响结果
 	_ = os.Remove(backup)
 	return nil
 }
