@@ -281,17 +281,9 @@ func flatten(n *yaml.Node, prefix string, out map[string]string) {
 		case yaml.MappingNode:
 			flatten(v, key, out)
 		case yaml.SequenceNode:
-			out[key] = renderValue(v)
+			out[key] = redactSecretValue(key, renderValue(v))
 		default:
-			out[key] = v.Value
-		}
-		// 脱敏 api_key 类键：仅显示 [已设置] 或 [未设置]
-		if strings.HasSuffix(key, ".api_key") || strings.HasSuffix(key, ".API_KEY") {
-			if strings.TrimSpace(v.Value) == "" {
-				out[key] = "[未设置]"
-			} else {
-				out[key] = "[已设置]"
-			}
+			out[key] = redactSecretValue(key, v.Value)
 		}
 	}
 }

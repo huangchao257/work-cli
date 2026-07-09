@@ -4,7 +4,7 @@
 package engine
 
 import (
-	"fmt"
+	"errors"
 	"os"
 	"strings"
 
@@ -31,5 +31,5 @@ func checkMissingEnv(envNames []string) error {
 		b.WriteString(platform.EnvSetHint(name))
 		b.WriteByte('\n')
 	}
-	return fmt.Errorf("%s", b.String())
+	return errors.New(b.String())
 }

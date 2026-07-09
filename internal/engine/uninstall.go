@@ -96,23 +96,24 @@ func findRecord(name, scope string) (*state.BundleRecord, *state.Store, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
-	rec, err := store.Find(name, scope)
-	if err == nil {
+	rec, firstErr := store.Find(name, scope)
+	if firstErr == nil {
 		return rec, store, nil
 	}
 	if scope != "user" {
 		statePath, err = platform.WorkStatePath("user")
 		if err != nil {
-			return nil, nil, fmt.Errorf("定位用户状态文件路径失败: %w", err)
+			return nil, nil, fmt.Errorf("定位用户状态文件路径失败（原作用域 %s 错误: %w）: %v", scope, firstErr, err)
 		}
 		store, err = state.Open(statePath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("打开用户状态文件失败: %w", err)
+			return nil, nil, fmt.Errorf("打开用户状态文件失败（原作用域 %s 错误: %w）: %v", scope, firstErr, err)
 		}
 		rec, err = store.Find(name, "user")
+		if err == nil {
+			return rec, store, nil
+		}
+		return nil, nil, fmt.Errorf("作用域 %s 查找失败: %w；用户作用域查找失败: %v", scope, firstErr, err)
 	}
-	if err != nil {
-		return nil, nil, err
-	}
-	return rec, store, nil
+	return nil, nil, firstErr
 }
