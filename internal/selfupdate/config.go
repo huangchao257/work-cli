@@ -39,11 +39,11 @@ func LoadConfig() (Config, error) {
 		if os.IsNotExist(err) {
 			return applyEnv(cfg), nil
 		}
-		return cfg, err
+		return cfg, fmt.Errorf("读取自更新配置文件失败: %w", err)
 	}
 	var fc fileConfig
 	if err := yaml.Unmarshal(data, &fc); err != nil {
-		return cfg, err
+		return cfg, fmt.Errorf("解析自更新配置文件失败: %w", err)
 	}
 	if fc.SelfUpdate.Enabled != nil {
 		cfg.Enabled = *fc.SelfUpdate.Enabled
