@@ -181,7 +181,7 @@ func (s *Store) withLock(fn func() error) error {
 	}
 	defer f.Close()
 	if err := platform.FlockLock(f, s.path, platform.FlockEX); err != nil {
-		return err
+		return fmt.Errorf("获取状态文件独占锁失败: %w", err)
 	}
 	defer func() { _ = platform.FlockUnlock(f) }()
 	return fn()
@@ -221,7 +221,11 @@ func (s *Store) cachedRead(f *os.File) (*File, error) {
 
 	s.mu.Lock()
 	if s.cache != nil && s.mtime == curMtime {
-		cpy := *s.cache
+		cpy := File{
+			Version: s.cache.Version,
+			Bundles: make([]BundleRecord, len(s.cache.Bundles)),
+		}
+		copy(cpy.Bundles, s.cache.Bundles)
 		s.mu.Unlock()
 		return &cpy, nil
 	}
@@ -243,7 +247,12 @@ func (s *Store) cachedRead(f *os.File) (*File, error) {
 	// 基于更新的 mtime 写入了更新的缓存。此时应保留较新的缓存。
 	if s.cache != nil && s.mtime > curMtime {
 		s.mu.Unlock()
-		return file, nil
+		cpy := File{
+			Version: s.cache.Version,
+			Bundles: make([]BundleRecord, len(s.cache.Bundles)),
+		}
+		copy(cpy.Bundles, s.cache.Bundles)
+		return &cpy, nil
 	}
 	s.cache = &cached
 	s.mtime = curMtime

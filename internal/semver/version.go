@@ -137,7 +137,7 @@ func comparePrerelease(a, b string) int {
 		}
 	}
 
-	// 较短的预发布标识优先级更高（更少的段意味着更接近正式版）
+	// 更长的预发布标识优先级更高（段越多表示越远离正式版，例如 alpha < alpha.1）
 	if len(aParts) < len(bParts) {
 		return -1
 	}

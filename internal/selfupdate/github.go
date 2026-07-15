@@ -53,8 +53,12 @@ func fetchReleaseResponse(ctx context.Context, client *http.Client, apiPath, rep
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("GitHub API 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 512))
+		detail := strings.TrimSpace(string(body))
+		if rerr != nil {
+			detail = fmt.Sprintf("(读取失败: %v)", rerr)
+		}
+		return nil, fmt.Errorf("GitHub API 返回 %d: %s", resp.StatusCode, detail)
 	}
 
 	var info releaseInfo
@@ -93,8 +97,12 @@ func fetchLatestPrerelease(ctx context.Context, client *http.Client, repo string
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return nil, fmt.Errorf("GitHub API 返回 %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		body, rerr := io.ReadAll(io.LimitReader(resp.Body, 512))
+		detail := strings.TrimSpace(string(body))
+		if rerr != nil {
+			detail = fmt.Sprintf("(读取失败: %v)", rerr)
+		}
+		return nil, fmt.Errorf("GitHub API 返回 %d: %s", resp.StatusCode, detail)
 	}
 
 	var releases []releaseInfo

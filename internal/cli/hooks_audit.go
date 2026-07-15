@@ -78,7 +78,10 @@ func runHooksAudit(cmd *cobra.Command, args []string) error {
 		// 策略损坏 → 用法错误，退出 2
 		return exitErr(2, fmt.Errorf("审计策略文件损坏: %w", err))
 	}
-	compiled := policy.Compile()
+	compiled, err := policy.Compile()
+	if err != nil {
+		return exitErr(2, fmt.Errorf("审计规则编译失败: %w", err))
+	}
 
 	// 2. 解析 --since
 	var since time.Duration

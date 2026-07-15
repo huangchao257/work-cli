@@ -45,22 +45,30 @@ type CompiledPolicy struct {
 }
 
 // Compile 预编译策略中所有规则的正则表达式。应先通过 LoadPolicy 加载并校验。
-func (p Policy) Compile() CompiledPolicy {
+func (p Policy) Compile() (CompiledPolicy, error) {
 	compiled := make([]compiledRule, 0, len(p.Rules))
 	for _, r := range p.Rules {
 		cr := compiledRule{rule: r}
 		if r.Match != "" {
-			cr.matchRe = regexp.MustCompile(r.Match)
+			re, err := regexp.Compile(r.Match)
+			if err != nil {
+				return CompiledPolicy{}, fmt.Errorf("规则 %s match 正则非法: %w", r.ID, err)
+			}
+			cr.matchRe = re
 		}
 		if r.PathRegex != "" {
-			cr.pathRe = regexp.MustCompile(r.PathRegex)
+			re, err := regexp.Compile(r.PathRegex)
+			if err != nil {
+				return CompiledPolicy{}, fmt.Errorf("规则 %s path_regex 正则非法: %w", r.ID, err)
+			}
+			cr.pathRe = re
 		}
 		if cr.rule.Severity == "" {
 			cr.rule.Severity = Medium
 		}
 		compiled = append(compiled, cr)
 	}
-	return CompiledPolicy{Rules: compiled}
+	return CompiledPolicy{Rules: compiled}, nil
 }
 
 // Violation 是一条违规记录。

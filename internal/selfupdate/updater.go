@@ -50,7 +50,7 @@ func NewUpdater(currentVersion string) *Updater {
 		CurrentVersion: currentVersion,
 		Repo:           DefaultRepo,
 		Channel:        "stable",
-		HTTPClient:     http.DefaultClient,
+		HTTPClient:     &http.Client{Timeout: 120 * time.Second},
 		Executable:     os.Executable,
 	}
 }
@@ -165,10 +165,12 @@ func downloadAsset(ctx context.Context, client *http.Client, url string) ([]byte
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
 			backoff := time.Duration(math.Pow(2, float64(attempt-1))) * time.Second
+			timer := time.NewTimer(backoff)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return nil, ctx.Err()
-			case <-time.After(backoff):
+			case <-timer.C:
 			}
 		}
 
@@ -243,7 +245,7 @@ func isTransientError(err error) bool {
 	}
 	msg := err.Error()
 	// 网络超时、连接重置等瞬时错误
-	if neterr, ok := err.(net.Error); ok && (neterr.Timeout() || neterr.Temporary()) {
+	if neterr, ok := err.(net.Error); ok && neterr.Timeout() {
 		return true
 	}
 	transientKeywords := []string{
@@ -320,8 +322,12 @@ func extractFromZip(data []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		defer rc.Close()
-		return io.ReadAll(rc)
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return nil, fmt.Errorf("读取 zip 条目失败: %w", err)
+		}
+		return data, nil
 	}
 	return nil, fmt.Errorf("压缩包中未找到 work 二进制")
 }

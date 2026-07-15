@@ -76,7 +76,7 @@ func TryAuto(ctx context.Context, opts AutoOptions) (*AutoResult, error) {
 }
 
 func NotifyAutoUpdate(stderr *os.File, res *AutoResult) {
-	if res == nil || !res.Updated || res.Message == "" {
+	if stderr == nil || res == nil || !res.Updated || res.Message == "" {
 		return
 	}
 	_, _ = fmt.Fprintf(stderr, "==> %s，正在重新执行命令...\n", res.Message)

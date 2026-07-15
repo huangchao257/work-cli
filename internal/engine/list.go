@@ -23,13 +23,17 @@ func List(scope, kindFilter string) (ListResult, error) {
 	}
 	items := make([]ListItem, 0, len(records))
 	for _, r := range records {
+		installedAt := ""
+		if !r.InstalledAt.IsZero() {
+			installedAt = r.InstalledAt.Format("2006-01-02 15:04:05")
+		}
 		items = append(items, ListItem{
 			Name:           r.Name,
 			Kind:           r.Kind,
 			Version:        r.Version,
 			Scope:          r.Scope,
 			Ref:            r.Ref,
-			InstalledAt:    r.InstalledAt.Format("2006-01-02 15:04:05"),
+			InstalledAt:    installedAt,
 			IDEs:           r.IDEs,
 			InstallCommand: r.InstallCommand,
 		})

@@ -87,13 +87,13 @@ func resolveRoot(path string) (string, error) {
 	if strings.TrimSpace(path) == "" {
 		cwd, err := os.Getwd()
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("获取当前目录失败: %w", err)
 		}
 		return cwd, nil
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("解析路径失败: %w", err)
 	}
 	return abs, nil
 }
@@ -153,9 +153,13 @@ func findScript(projectRoot, name string) (string, error) {
 	home, _ := os.UserHomeDir()
 	candidates := []string{
 		filepath.Join(projectRoot, ".cursor", "skills", skillID, "scripts", name),
-		filepath.Join(home, ".cursor", "skills", skillID, "scripts", name),
-		filepath.Join(home, ".claude", "skills", skillID, "scripts", name),
-		filepath.Join(home, ".qoder", "skills", skillID, "scripts", name),
+	}
+	if home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, ".cursor", "skills", skillID, "scripts", name),
+			filepath.Join(home, ".claude", "skills", skillID, "scripts", name),
+			filepath.Join(home, ".qoder", "skills", skillID, "scripts", name),
+		)
 	}
 	for _, c := range candidates {
 		if st, err := os.Stat(c); err == nil && !st.IsDir() {

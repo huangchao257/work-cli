@@ -44,7 +44,7 @@ func ExtractMCPServer(existing []byte, serverID string) (json.RawMessage, error)
 		return nil, fmt.Errorf("server %s not found", serverID)
 	}
 	if err := json.Unmarshal(existing, &cfg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("解析 MCP 配置失败: %w", err)
 	}
 	raw, ok := cfg.MCPServers[serverID]
 	if !ok {

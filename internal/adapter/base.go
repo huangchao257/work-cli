@@ -2,6 +2,7 @@ package adapter
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -57,33 +58,32 @@ func (a *baseAdapter) InstallMCP(ctx context.Context, bundleRoot string, mcp bun
 }
 
 // Uninstall 清理已安装的 skills/rules/MCP 资源。
-// 删除单个文件失败时不阻断后续清理，残留文件可由下次安装覆盖。
+// 路径解析失败时记录错误但不阻断后续清理，残留文件可由下次安装覆盖。
 func (a *baseAdapter) Uninstall(ctx context.Context, rec state.BundleRecord, scope Scope) error {
+	var errs []error
 	// 清理 skills
 	for _, id := range rec.Resources.Skills {
-		dir, err := platform.SkillDir(a.ide, string(scope), id)
-		if err != nil {
-			return fmt.Errorf("定位 skill 目录失败: %w", err)
+		if dir, err := platform.SkillDir(a.ide, string(scope), id); err != nil {
+			errs = append(errs, fmt.Errorf("定位 skill 目录失败: %w", err))
+		} else {
+			_ = os.RemoveAll(dir)
 		}
-		_ = os.RemoveAll(dir)
 	}
 
 	// 清理 rules：使用适配器的 rulePathFn 确定文件路径
 	for _, id := range rec.Resources.Rules {
-		path, err := a.rulePathFn(string(scope), id)
-		if err != nil {
-			return fmt.Errorf("定位 rule 文件失败: %w", err)
+		if path, err := a.rulePathFn(string(scope), id); err != nil {
+			errs = append(errs, fmt.Errorf("定位 rule 文件失败: %w", err))
+		} else {
+			_ = os.Remove(path)
 		}
-		_ = os.Remove(path)
 	}
 
 	// 清理 MCP servers
 	if len(rec.Resources.MCP) > 0 {
-		mcpPath, err := platform.MCPConfigPath(a.ide, string(scope))
-		if err != nil {
-			return fmt.Errorf("定位 MCP 配置失败: %w", err)
-		}
-		err = withMCPLock(mcpPath, func(existing []byte) ([]byte, error) {
+		if mcpPath, err := platform.MCPConfigPath(a.ide, string(scope)); err != nil {
+			errs = append(errs, fmt.Errorf("定位 MCP 配置失败: %w", err))
+		} else if err := withMCPLock(mcpPath, func(existing []byte) ([]byte, error) {
 			out := existing
 			for _, id := range rec.Resources.MCP {
 				var rmErr error
@@ -93,13 +93,12 @@ func (a *baseAdapter) Uninstall(ctx context.Context, rec state.BundleRecord, sco
 				}
 			}
 			return out, nil
-		})
-		if err != nil {
-			return err
+		}); err != nil {
+			errs = append(errs, fmt.Errorf("清理 MCP servers 失败: %w", err))
 		}
 	}
 
-	return nil
+	return errors.Join(errs...)
 }
 
 // genericRulePath 返回 Qoder/Cursor 等通用 IDE 的 rule 文件路径。

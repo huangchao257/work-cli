@@ -120,7 +120,7 @@ func addDirs(w *fsnotify.Watcher, root string) error {
 			".goreleaser", "__pycache__":
 			return filepath.SkipDir
 		}
-		if strings.HasPrefix(name, ".") && name != "." {
+		if strings.HasPrefix(name, ".") {
 			return filepath.SkipDir
 		}
 		return w.Add(path)

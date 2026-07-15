@@ -82,10 +82,7 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return fmt.Errorf("创建 hooks 目录失败: %w", err)
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("写入 hooks.json 失败: %w", err)
-	}
-	return nil
+	return atomicWriteJSON(configPath, out)
 }
 
 func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
@@ -103,8 +100,13 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 
 	var hooks settingsFile
 	if raw, ok := root["hooks"]; ok {
-		b, _ := json.Marshal(raw)
-		_ = json.Unmarshal(b, &hooks)
+		b, err := json.Marshal(raw)
+		if err != nil {
+			return fmt.Errorf("编码现有 hooks 失败: %w", err)
+		}
+		if err := json.Unmarshal(b, &hooks); err != nil {
+			return fmt.Errorf("解析现有 hooks 失败（不支持的格式，请手动迁移）: %w", err)
+		}
 	}
 	if hooks.Hooks == nil {
 		hooks.Hooks = map[string][]matcherGroup{}
@@ -153,10 +155,7 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return fmt.Errorf("创建 settings 目录失败: %w", err)
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("写入 settings.json 失败: %w", err)
-	}
-	return nil
+	return atomicWriteJSON(configPath, out)
 }
 
 func UnmergeCursorHooks(configPath string) error {
@@ -189,10 +188,7 @@ func UnmergeCursorHooks(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("编码 hooks.json 失败: %w", err)
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("写入 hooks.json 失败: %w", err)
-	}
-	return nil
+	return atomicWriteJSON(configPath, out)
 }
 
 func UnmergeSettingsHooks(configPath string) error {
@@ -211,7 +207,10 @@ func UnmergeSettingsHooks(configPath string) error {
 	if !ok {
 		return nil
 	}
-	b, _ := json.Marshal(raw)
+	b, err := json.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("编码 hooks 字段失败: %w", err)
+	}
 	var hooks settingsFile
 	if err := json.Unmarshal(b, &hooks); err != nil {
 		return fmt.Errorf("解析 hooks 字段失败: %w", err)
@@ -247,8 +246,33 @@ func UnmergeSettingsHooks(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("编码 settings.json 失败: %w", err)
 	}
-	if err := os.WriteFile(configPath, append(out, '\n'), 0o644); err != nil {
-		return fmt.Errorf("写入 settings.json 失败: %w", err)
+	return atomicWriteJSON(configPath, out)
+}
+
+func atomicWriteJSON(path string, data []byte) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".hook-*.json")
+	if err != nil {
+		return fmt.Errorf("创建临时文件失败: %w", err)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	out := append(data, '\n')
+	if _, err := tmp.Write(out); err != nil {
+		return fmt.Errorf("写入临时文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子替换文件失败: %w", err)
+	}
+	cleanup = false
 	return nil
 }

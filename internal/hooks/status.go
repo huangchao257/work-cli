@@ -37,6 +37,6 @@ func GetStatus() (Status, error) {
 		LastSync:      st.LastSync,
 		LastError:     st.LastError,
 		TelemetryURL:  cfg.URL,
-		TelemetryOn:   cfg.Enabled,
+		TelemetryOn:   cfg.Enabled != nil && *cfg.Enabled,
 	}, nil
 }

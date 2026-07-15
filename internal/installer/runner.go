@@ -20,8 +20,14 @@ func ResolveCommand(spec CommandSpec) (string, error) {
 }
 
 func Run(ctx context.Context, command string) error {
+	return RunInDir(ctx, "", command)
+}
+
+// RunInDir 在指定目录中执行命令。dir 为空时使用当前工作目录。
+func RunInDir(ctx context.Context, dir, command string) error {
 	shell, flag := defaultShell()
 	cmd := exec.CommandContext(ctx, shell, flag, command)
+	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

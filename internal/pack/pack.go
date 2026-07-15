@@ -144,9 +144,6 @@ func readManifestMeta(dir string, kind pkgmanifest.Kind) (pkgmanifest.Meta, erro
 	return m, nil
 }
 
-func manifestFileName(kind pkgmanifest.Kind) string {
-	return pkgmanifest.FileName(kind)
-}
 
 // resolveOutputPath 解析输出路径：空→<dir>/../<defaultName>；已存在目录→其下 <defaultName>；否则视为完整文件路径。
 func resolveOutputPath(output, dir, defaultName string) string {
@@ -183,12 +180,19 @@ func collectFiles(dir string) ([]string, error) {
 }
 
 // writeArchive 创建归档文件，返回其 sha256 十六进制摘要。
-func writeArchive(format Format, dir string, files []string, out string) (string, error) {
+func writeArchive(format Format, dir string, files []string, out string) (sum string, err error) {
+	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+		return "", fmt.Errorf("创建归档输出目录失败: %w", err)
+	}
 	f, err := os.Create(out)
 	if err != nil {
 		return "", fmt.Errorf("创建归档文件失败: %w", err)
 	}
-	defer f.Close()
+	defer func() {
+		if cerr := f.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	h := sha256.New()
 	mw := io.MultiWriter(f, h)
@@ -205,11 +209,19 @@ func writeArchive(format Format, dir string, files []string, out string) (string
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func writeTarGz(w io.Writer, dir string, files []string) error {
+func writeTarGz(w io.Writer, dir string, files []string) (err error) {
 	gw := gzip.NewWriter(w)
-	defer gw.Close()
+	defer func() {
+		if cerr := gw.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 	tw := tar.NewWriter(gw)
-	defer tw.Close()
+	defer func() {
+		if cerr := tw.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	for _, rel := range files {
 		full := filepath.Join(dir, rel)
@@ -235,9 +247,13 @@ func writeTarGz(w io.Writer, dir string, files []string) error {
 	return nil
 }
 
-func writeZip(w io.Writer, dir string, files []string) error {
+func writeZip(w io.Writer, dir string, files []string) (err error) {
 	zw := zip.NewWriter(w)
-	defer zw.Close()
+	defer func() {
+		if cerr := zw.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
 
 	for _, rel := range files {
 		full := filepath.Join(dir, rel)

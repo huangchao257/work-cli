@@ -27,7 +27,7 @@ func PrintStatus(ctx context.Context, opts Options, w io.Writer) error {
 	if len(st.Codegraph) > 0 {
 		var m map[string]any
 		if json.Unmarshal(st.Codegraph, &m) == nil {
-			if init, _ := m["initialized"].(bool); init {
+			if init, ok := m["initialized"].(bool); ok && init {
 				fmt.Fprintf(w, "CodeGraph: 已索引（%v 文件, %v 符号）\n", m["fileCount"], m["nodeCount"])
 			} else {
 				fmt.Fprintln(w, "CodeGraph: 未初始化（运行 work graph init）")

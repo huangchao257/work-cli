@@ -15,6 +15,9 @@ import (
 
 func installSkillAt(bundleRoot string, skill bundle.SkillResource, dest string) (string, error) {
 	src := filepath.Join(bundleRoot, filepath.FromSlash(strings.TrimPrefix(skill.Source, "./")))
+	if err := validateSourceInBundle(bundleRoot, src); err != nil {
+		return "", err
+	}
 	if err := os.RemoveAll(dest); err != nil {
 		return "", err
 	}
@@ -26,6 +29,9 @@ func installSkillAt(bundleRoot string, skill bundle.SkillResource, dest string) 
 
 func installRuleFile(bundleRoot string, rule bundle.RuleResource, dest string, frontMatter string) (string, error) {
 	src := filepath.Join(bundleRoot, filepath.FromSlash(strings.TrimPrefix(rule.Source, "./")))
+	if err := validateSourceInBundle(bundleRoot, src); err != nil {
+		return "", err
+	}
 	content, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
@@ -36,14 +42,37 @@ func installRuleFile(bundleRoot string, rule bundle.RuleResource, dest string, f
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return "", err
 	}
-	if err := os.WriteFile(dest, buf.Bytes(), 0o644); err != nil {
-		return "", err
+	tmp, err := os.CreateTemp(filepath.Dir(dest), ".rule-*.md")
+	if err != nil {
+		return "", fmt.Errorf("创建临时规则文件失败: %w", err)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	data := buf.Bytes()
+	if _, err := tmp.Write(data); err != nil {
+		return "", fmt.Errorf("写入临时规则文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return "", fmt.Errorf("关闭临时规则文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, dest); err != nil {
+		return "", fmt.Errorf("原子替换规则文件失败: %w", err)
+	}
+	cleanup = false
 	return dest, nil
 }
 
 func installMCPAt(bundleRoot string, mcp bundle.MCPResource, configPath string) (string, error) {
 	src := filepath.Join(bundleRoot, filepath.FromSlash(strings.TrimPrefix(mcp.Source, "./")))
+	if err := validateSourceInBundle(bundleRoot, src); err != nil {
+		return "", err
+	}
 	data, err := os.ReadFile(src)
 	if err != nil {
 		return "", err
@@ -60,6 +89,16 @@ func installMCPAt(bundleRoot string, mcp bundle.MCPResource, configPath string) 
 		return "", err
 	}
 	return configPath, nil
+}
+
+func validateSourceInBundle(bundleRoot, src string) error {
+	cleaned := filepath.Clean(src)
+	root := filepath.Clean(bundleRoot)
+	sep := string(os.PathSeparator)
+	if !strings.HasPrefix(cleaned, root+sep) && cleaned != root {
+		return fmt.Errorf("源路径 %q 试图逃逸 bundle 目录", src)
+	}
+	return nil
 }
 
 func cursorRuleFrontMatter(rule bundle.RuleResource) string {
@@ -126,9 +165,28 @@ func withMCPLock(configPath string, fn func(existing []byte) ([]byte, error)) er
 		return err
 	}
 
-	// 写入在锁内执行，保证整个 read-modify-write 是原子的
-	if err := os.WriteFile(configPath, merged, 0o644); err != nil {
-		return fmt.Errorf("写入 MCP 配置文件失败: %w", err)
+	// 原子写入：先写临时文件，再 rename，避免 truncate 中途崩溃导致文件为空
+	tmp, werr := os.CreateTemp(filepath.Dir(configPath), ".mcp-*.json")
+	if werr != nil {
+		return fmt.Errorf("创建临时 MCP 配置文件失败: %w", werr)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, werr := tmp.Write(merged); werr != nil {
+		return fmt.Errorf("写入临时 MCP 配置文件失败: %w", werr)
+	}
+	if werr := tmp.Close(); werr != nil {
+		return fmt.Errorf("关闭临时 MCP 配置文件失败: %w", werr)
+	}
+	if werr := os.Rename(tmpPath, configPath); werr != nil {
+		return fmt.Errorf("原子替换 MCP 配置文件失败: %w", werr)
+	}
+	cleanup = false
 	return nil
 }

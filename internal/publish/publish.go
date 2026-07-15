@@ -298,32 +298,38 @@ func upload(target, archive, checksumPath, name, version, typ string) error {
 	uploadErr := make(chan error, 1)
 	go func() {
 		defer pw.Close()
-		defer mw.Close()
+		var gerr error
+		defer func() {
+			if cerr := mw.Close(); cerr != nil && gerr == nil {
+				gerr = fmt.Errorf("关闭 multipart 表单失败: %w", cerr)
+			}
+			uploadErr <- gerr
+		}()
 		if err := mw.WriteField("name", name); err != nil {
-			uploadErr <- fmt.Errorf("构造表单失败: %w", err)
+			gerr = fmt.Errorf("构造表单失败: %w", err)
 			return
 		}
 		if err := mw.WriteField("version", version); err != nil {
-			uploadErr <- fmt.Errorf("构造表单失败: %w", err)
+			gerr = fmt.Errorf("构造表单失败: %w", err)
 			return
 		}
 		if err := mw.WriteField("type", typ); err != nil {
-			uploadErr <- fmt.Errorf("构造表单失败: %w", err)
+			gerr = fmt.Errorf("构造表单失败: %w", err)
 			return
 		}
 		if err := writeFileField(mw, "archive", archive); err != nil {
-			uploadErr <- err
+			gerr = err
 			return
 		}
 		if err := writeFileField(mw, "checksum", checksumPath); err != nil {
-			uploadErr <- err
+			gerr = err
 			return
 		}
-		uploadErr <- nil
 	}()
 
 	req, err := http.NewRequest(http.MethodPost, target, pr)
 	if err != nil {
+		pr.Close()
 		return fmt.Errorf("构造请求失败: %w", err)
 	}
 	req.Header.Set("Content-Type", mw.FormDataContentType())
@@ -331,6 +337,7 @@ func upload(target, archive, checksumPath, name, version, typ string) error {
 	client := &http.Client{Timeout: 60 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
+		pr.Close()
 		return fmt.Errorf("上传失败: %w", err)
 	}
 	defer resp.Body.Close()
@@ -344,8 +351,12 @@ func upload(target, archive, checksumPath, name, version, typ string) error {
 	case resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated:
 		return nil
 	case resp.StatusCode >= 400 && resp.StatusCode < 500:
-		b, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Registry 拒绝上传 (%s): %s", resp.Status, strings.TrimSpace(string(b)))
+		b, rerr := io.ReadAll(resp.Body)
+		detail := strings.TrimSpace(string(b))
+		if rerr != nil {
+			detail = fmt.Sprintf("(读取失败: %v) %s", rerr, detail)
+		}
+		return fmt.Errorf("Registry 拒绝上传 (%s): %s", resp.Status, detail)
 	default:
 		return fmt.Errorf("Registry 返回错误: %s", resp.Status)
 	}

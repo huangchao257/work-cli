@@ -3,6 +3,7 @@ package hooks
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,14 +22,14 @@ func TestMergeCursorHooks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !contains(string(data), "beforeShellExecution") {
+	if !strings.Contains(string(data), "beforeShellExecution") {
 		t.Fatalf("missing event in %s", data)
 	}
 	if err := UnmergeCursorHooks(path); err != nil {
 		t.Fatal(err)
 	}
 	data2, _ := os.ReadFile(path)
-	if contains(string(data2), "work-telemetry") {
+	if strings.Contains(string(data2), "work-telemetry") {
 		t.Fatalf("work hooks should be removed: %s", data2)
 	}
 }

@@ -34,8 +34,7 @@ func Report(in ReportInput) (ReportResult, error) {
 	}
 
 	cfg, _ := LoadTelemetryConfig()
-	var manifest *Manifest
-	redactFields := ResolveRedactFields(manifest, cfg)
+	redactFields := resolveRedactFromSidecar(cfg, in.HooksKit)
 
 	payload, err := RedactPayload(raw, redactFields)
 	if err != nil {
@@ -78,7 +77,7 @@ func Report(in ReportInput) (ReportResult, error) {
 		return ReportResult{}, fmt.Errorf("写入事件队列失败: %w", err)
 	}
 
-	if in.TriggerSync && cfg.Enabled && cfg.URL != "" {
+	if in.TriggerSync && cfg.Enabled != nil && *cfg.Enabled && cfg.URL != "" {
 		// 异步触发同步：fire-and-forget，goroutine 内的错误无法返回调用方
 		go func() { _ = Sync(cfg) }()
 	}
@@ -101,7 +100,27 @@ func EncodeReportDebug(rec EventRecord) ([]byte, error) {
 
 func newEventID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		// 随机数失败时回退到时间戳+哈希，仍然保证唯一性
+		return fallbackEventID()
+	}
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
+func fallbackEventID() string {
+	now := time.Now().UTC()
+	b := make([]byte, 16)
+	// 用时间戳的低位填充前 8 字节
+	ns := uint64(now.UnixNano())
+	for i := 7; i >= 0; i-- {
+		b[i] = byte(ns & 0xff)
+		ns >>= 8
+	}
+	// 后 8 字节用 hostname+pid hash
+	h := sha256.Sum256([]byte(fmt.Sprintf("%s:%d", machineID(), os.Getpid())))
+	copy(b[8:], h[:8])
 	b[6] = (b[6] & 0x0f) | 0x40
 	b[8] = (b[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])

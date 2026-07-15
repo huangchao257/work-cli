@@ -11,7 +11,10 @@ func TestEvaluateEventFilter(t *testing.T) {
 	policy := Policy{Rules: []Rule{
 		{ID: "shell-deny", Event: "shell", Match: "rm\\s+-rf", Severity: High},
 	}}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "e1", AbstractEvent: "file_edit", Payload: map[string]any{"cmd": "rm -rf /"}},
 		{EventID: "e2", AbstractEvent: "shell", Payload: map[string]any{"cmd": "rm -rf /"}},
@@ -26,7 +29,10 @@ func TestEvaluateMatchHitAndMiss(t *testing.T) {
 	policy := Policy{Rules: []Rule{
 		{ID: "deny-rm-rf", Match: "rm\\s+-rf", Severity: High},
 	}}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "hit", AbstractEvent: "shell", Payload: map[string]any{"command": "rm -rf /tmp"}},
 		{EventID: "miss", AbstractEvent: "shell", Payload: map[string]any{"command": "ls -la"}},
@@ -44,7 +50,10 @@ func TestEvaluatePathRegexHitAndMiss(t *testing.T) {
 	policy := Policy{Rules: []Rule{
 		{ID: "sensitive-write", Event: "file_edit", PathRegex: "(/etc/|\\.env|credentials)", Severity: Medium},
 	}}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "sensitive", AbstractEvent: "file_edit", Payload: map[string]any{"path": "/etc/passwd"}},
 		{EventID: "benign", AbstractEvent: "file_edit", Payload: map[string]any{"path": "/home/user/main.go"}},
@@ -60,7 +69,10 @@ func TestEvaluatePathRegexFallbackToText(t *testing.T) {
 	policy := Policy{Rules: []Rule{
 		{ID: "cred-in-text", PathRegex: "credentials", Severity: Medium},
 	}}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "e1", AbstractEvent: "shell", Payload: map[string]any{"cmd": "cat credentials.yaml"}},
 	}
@@ -74,7 +86,10 @@ func TestEvaluateSeverityDefaultMedium(t *testing.T) {
 	policy := Policy{Rules: []Rule{
 		{ID: "no-sev", Match: "danger"},
 	}}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "e1", AbstractEvent: "shell", Payload: map[string]any{"cmd": "danger zone"}},
 	}
@@ -138,7 +153,10 @@ func TestEvaluateSinceZeroTimestampDroppedWhenSinceSet(t *testing.T) {
 
 func TestEvaluateNoRulesPolicy(t *testing.T) {
 	policy := Policy{}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "e1", AbstractEvent: "shell", Payload: map[string]any{"cmd": "rm -rf /"}},
 	}
@@ -153,7 +171,10 @@ func TestEvaluateMatchAndPathEitherHits(t *testing.T) {
 	policy := Policy{Rules: []Rule{
 		{ID: "dual", Match: "rm\\s+-rf", PathRegex: "/etc/", Severity: High},
 	}}
-	cp := policy.Compile()
+	cp, err := policy.Compile()
+	if err != nil {
+		t.Fatal(err)
+	}
 	events := []EventRecord{
 		{EventID: "by-match", AbstractEvent: "shell", Payload: map[string]any{"cmd": "rm -rf /home"}},
 		{EventID: "by-path", AbstractEvent: "file_edit", Payload: map[string]any{"path": "/etc/shadow"}},

@@ -35,7 +35,7 @@ func collectResults(results []Result) *BatchResult {
 }
 
 // runParallel 用信号量限制并发（最多 8）并行执行 count 个闭包。
-func runParallel(count int, fn func(i int) Result) []Result {
+func runParallel(ctx context.Context, count int, fn func(ctx context.Context, i int) Result) []Result {
 	results := make([]Result, count)
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
@@ -43,9 +43,14 @@ func runParallel(count int, fn func(i int) Result) []Result {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			sem <- struct{}{}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results[i] = Result{Success: false, Name: fmt.Sprintf("index-%d", i), Warnings: []string{ctx.Err().Error()}}
+				return
+			}
 			defer func() { <-sem }()
-			results[i] = fn(i)
+			results[i] = fn(ctx, i)
 		}(i)
 	}
 	wg.Wait()
@@ -57,7 +62,7 @@ func InstallBatch(ctx context.Context, opts Options, names []string) (*BatchResu
 	if len(names) == 0 {
 		return nil, fmt.Errorf("至少需要指定一个安装名称")
 	}
-	results := runParallel(len(names), func(i int) Result {
+	results := runParallel(ctx, len(names), func(ctx context.Context, i int) Result {
 		ref, err := resolveRef(names[i])
 		if err != nil {
 			return Result{Success: false, Name: names[i], Warnings: []string{err.Error()}}
@@ -90,7 +95,7 @@ func UninstallAll(ctx context.Context, scope, kindFilter string, dryRun bool) (*
 		}
 		return nil, fmt.Errorf("没有已安装的%s资源", desc)
 	}
-	results := runParallel(len(recs), func(i int) Result {
+	results := runParallel(ctx, len(recs), func(ctx context.Context, i int) Result {
 		res, err := Uninstall(ctx, recs[i].Name, recs[i].Scope, dryRun)
 		if err != nil {
 			return Result{Success: false, Name: recs[i].Name, Warnings: []string{err.Error()}}
@@ -109,7 +114,7 @@ func UninstallBatch(ctx context.Context, names []string, scope string, dryRun bo
 	if scope == "" {
 		scope = "user"
 	}
-	results := runParallel(len(names), func(i int) Result {
+	results := runParallel(ctx, len(names), func(ctx context.Context, i int) Result {
 		res, err := Uninstall(ctx, names[i], scope, dryRun)
 		if err != nil {
 			return Result{Success: false, Name: names[i], Warnings: []string{err.Error()}}

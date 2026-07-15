@@ -15,11 +15,11 @@ type checkState struct {
 }
 
 func statePath() (string, error) {
-	home, err := os.UserHomeDir()
+	dir, err := platform.WorkConfigDir()
 	if err != nil {
-		return "", fmt.Errorf("获取用户主目录失败: %w", err)
+		return "", fmt.Errorf("获取 work 配置目录失败: %w", err)
 	}
-	return filepath.Join(home, ".work", "self-update.json"), nil
+	return filepath.Join(dir, "self-update.json"), nil
 }
 
 // withStateLock 对 self-update.json 加文件锁，执行 fn 并返回结果。
@@ -77,9 +77,29 @@ func saveCheckState(st checkState) error {
 	if err != nil {
 		return fmt.Errorf("编码状态失败: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		return fmt.Errorf("写入自更新状态文件失败: %w", err)
+
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".self-update-*.json")
+	if err != nil {
+		return fmt.Errorf("创建临时状态文件失败: %w", err)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("写入临时状态文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时状态文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子替换自更新状态文件失败: %w", err)
+	}
+	cleanup = false
 	return nil
 }
 
@@ -89,7 +109,7 @@ func shouldCheckNow(interval time.Duration, force bool) (bool, error) {
 	}
 	st, err := loadCheckState()
 	if err != nil {
-		return true, err
+		return false, err
 	}
 	if st.LastCheck.IsZero() {
 		return true, nil

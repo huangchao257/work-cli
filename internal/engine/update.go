@@ -55,11 +55,8 @@ func Update(ctx context.Context, name, scope string, dryRun bool) ([]Result, err
 			results = append(results, res)
 			continue
 		}
-		if !dryRun {
-			if _, err := Uninstall(ctx, rec.Name, rec.Scope, false); err != nil {
-				return nil, err
-			}
-		}
+		// 先安装新版本，再卸载旧版本，保证更新过程的原子性。
+		// 如果安装失败，旧版本仍可用；如果卸载失败，新版本已就绪。
 		res, err := Install(ctx, Options{
 			Scope:  rec.Scope,
 			IDEs:   rec.IDEs,
@@ -68,6 +65,11 @@ func Update(ctx context.Context, name, scope string, dryRun bool) ([]Result, err
 		})
 		if err != nil {
 			return nil, err
+		}
+		if !dryRun {
+			if _, err := Uninstall(ctx, rec.Name, rec.Scope, false); err != nil {
+				return nil, err
+			}
 		}
 		results = append(results, res)
 	}
@@ -106,13 +108,21 @@ func updateCLI(ctx context.Context, ref source.Ref, rec state.BundleRecord, dryR
 	if dryRun {
 		return Result{Success: true, Name: rec.Name, Kind: "cli", Version: rec.Version, Scope: "user", Commands: []string{cmd}, DryRun: true}, nil
 	}
-	if err := runInDir(ctx, pkgDir, cmd); err != nil {
+	if err := installer.RunInDir(ctx, pkgDir, cmd); err != nil {
 		return Result{}, err
 	}
 	rec.Version = manifest.Version
 	rec.InstallCommand = cmd
 	if err := saveStateRecord(rec, "user"); err != nil {
-		return Result{}, err
+		return Result{
+			Success:  true,
+			Name:     rec.Name,
+			Kind:     "cli",
+			Version:  manifest.Version,
+			Scope:    "user",
+			Commands: []string{cmd},
+			Warnings: []string{fmt.Sprintf("CLI 更新成功，但保存状态失败: %v", err)},
+		}, nil
 	}
 	return Result{Success: true, Name: rec.Name, Kind: "cli", Version: manifest.Version, Scope: "user", Commands: []string{cmd}, DryRun: false}, nil
 }

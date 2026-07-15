@@ -32,26 +32,41 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 			}
 		}
 	case "cli":
-		ref, err := source.ParseRef(rec.Ref)
-		if err == nil {
-			pkgDir, err := source.Resolve(ref)
-			if err == nil {
-				manifest, err := installer.ParseDir(pkgDir)
-				if err == nil && manifest.Uninstall != nil {
-					cmd, err := installer.ResolveCommand(*manifest.Uninstall)
-					if err == nil {
-						commands = append(commands, cmd)
-						if !dryRun {
-							if err := runInDir(ctx, pkgDir, cmd); err != nil {
-								return Result{}, fmt.Errorf("执行卸载命令失败: %w", err)
+		{
+			var resolveErrors []string
+			ref, err := source.ParseRef(rec.Ref)
+			if err != nil {
+				resolveErrors = append(resolveErrors, fmt.Sprintf("解析引用失败: %v", err))
+			} else {
+				pkgDir, err := source.Resolve(ref)
+				if err != nil {
+					resolveErrors = append(resolveErrors, fmt.Sprintf("解析包目录失败: %v", err))
+				} else {
+					manifest, err := installer.ParseDir(pkgDir)
+					if err != nil {
+						resolveErrors = append(resolveErrors, fmt.Sprintf("解析 installer.yaml 失败: %v", err))
+					} else if manifest.Uninstall != nil {
+						cmd, err := installer.ResolveCommand(*manifest.Uninstall)
+						if err != nil {
+							resolveErrors = append(resolveErrors, fmt.Sprintf("解析卸载命令失败: %v", err))
+						} else {
+							commands = append(commands, cmd)
+							if !dryRun {
+								if err := installer.RunInDir(ctx, pkgDir, cmd); err != nil {
+									return Result{}, fmt.Errorf("执行卸载命令失败: %w", err)
+								}
 							}
 						}
 					}
 				}
 			}
-		}
-		if len(commands) == 0 {
-			warnings = append(warnings, fmt.Sprintf("未找到 %s 的卸载命令，请手动卸载（例如 npm uninstall -g @fission-ai/openspec）", name))
+			if len(commands) == 0 {
+				msg := fmt.Sprintf("未找到 %s 的卸载命令，请手动卸载（例如 npm uninstall -g @fission-ai/openspec）", name)
+				if len(resolveErrors) > 0 {
+					msg += "。原因: " + resolveErrors[len(resolveErrors)-1]
+				}
+				warnings = append(warnings, msg)
+			}
 		}
 	default:
 		if !dryRun {
@@ -103,17 +118,17 @@ func findRecord(name, scope string) (*state.BundleRecord, *state.Store, error) {
 	if scope != "user" {
 		statePath, err = platform.WorkStatePath("user")
 		if err != nil {
-			return nil, nil, fmt.Errorf("定位用户状态文件路径失败（原作用域 %s 错误: %w）: %v", scope, firstErr, err)
+			return nil, nil, fmt.Errorf("定位用户状态文件路径失败（原作用域 %s 错误: %v）: %w", scope, firstErr, err)
 		}
 		store, err = state.Open(statePath)
 		if err != nil {
-			return nil, nil, fmt.Errorf("打开用户状态文件失败（原作用域 %s 错误: %w）: %v", scope, firstErr, err)
+			return nil, nil, fmt.Errorf("打开用户状态文件失败（原作用域 %s 错误: %v）: %w", scope, firstErr, err)
 		}
 		rec, err = store.Find(name, "user")
 		if err == nil {
 			return rec, store, nil
 		}
-		return nil, nil, fmt.Errorf("作用域 %s 查找失败: %w；用户作用域查找失败: %v", scope, firstErr, err)
+		return nil, nil, fmt.Errorf("作用域 %s 查找失败: %v；用户作用域查找失败: %w", scope, firstErr, err)
 	}
 	return nil, nil, firstErr
 }

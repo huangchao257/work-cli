@@ -36,6 +36,8 @@ type registryResponse struct {
 	Version     string `json:"version"`
 	DownloadURL string `json:"download_url"`
 	Checksum    string `json:"checksum"`
+	Ref         string `json:"ref"`
+	Subdir      string `json:"subdir"`
 }
 
 func LoadUserConfig() (*UserConfig, error) {
@@ -90,14 +92,36 @@ func ResolveRegistry(name string, cfg *UserConfig) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dest := filepath.Join(cache, "registry", name, meta.Version)
+	switch meta.Type {
+	case "git":
+		return resolveGit(meta, cache)
+	case "maven":
+		return resolveMaven(meta, cfg.Registry.URL, cache)
+	case "":
+		return resolveHTTP(meta, cache)
+	default:
+		return "", fmt.Errorf("不支持的 registry 类型: %q", meta.Type)
+	}
+}
+
+func resolveHTTP(meta registryResponse, cache string) (string, error) {
+	if meta.Version == "" {
+		return "", fmt.Errorf("registry 响应缺少 version 字段")
+	}
+	if err := validatePathComponent(meta.Name); err != nil {
+		return "", fmt.Errorf("registry 返回非法 bundle 名称: %w", err)
+	}
+	if err := validatePathComponent(meta.Version); err != nil {
+		return "", fmt.Errorf("registry 返回非法版本号: %w", err)
+	}
+	dest := filepath.Join(cache, "registry", meta.Name, meta.Version)
 	if _, err := os.Stat(dest); err == nil {
 		return dest, nil
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return "", fmt.Errorf("创建缓存目录失败: %w", err)
 	}
-	zipPath := filepath.Join(cache, "registry", name, meta.Version+".zip")
+	zipPath := filepath.Join(cache, "registry", meta.Name, meta.Version+".zip")
 	if err := downloadFile(meta.DownloadURL, zipPath); err != nil {
 		return "", fmt.Errorf("下载归档失败: %w", err)
 	}
@@ -112,6 +136,44 @@ func ResolveRegistry(name string, cfg *UserConfig) (string, error) {
 	return dest, nil
 }
 
+func resolveGit(meta registryResponse, cache string) (string, error) {
+	if meta.Version == "" {
+		return "", fmt.Errorf("git 类型缺少 version 字段")
+	}
+	if meta.DownloadURL == "" {
+		return "", fmt.Errorf("git 类型缺少 download_url 字段")
+	}
+	if err := validatePathComponent(meta.Name); err != nil {
+		return "", fmt.Errorf("registry 返回非法 bundle 名称: %w", err)
+	}
+	if err := validatePathComponent(meta.Version); err != nil {
+		return "", fmt.Errorf("registry 返回非法版本号: %w", err)
+	}
+	dest := filepath.Join(cache, "registry", meta.Name, meta.Version)
+	if _, err := os.Stat(dest); err == nil {
+		return dest, nil
+	}
+	ref := meta.Ref
+	if ref == "" {
+		ref = meta.Version
+	}
+	cloneDir, err := ResolveGit(meta.DownloadURL, ref, cache)
+	if err != nil {
+		return "", fmt.Errorf("git clone 失败: %w", err)
+	}
+	if meta.Subdir != "" {
+		src := filepath.Join(cloneDir, meta.Subdir)
+		if !strings.HasPrefix(filepath.Clean(src), filepath.Clean(cloneDir)+string(os.PathSeparator)) {
+			return "", fmt.Errorf("子目录 %q 试图逃逸仓库目录", meta.Subdir)
+		}
+		if _, err := os.Stat(src); err != nil {
+			return "", fmt.Errorf("子目录 %q 不存在: %w", meta.Subdir, err)
+		}
+		return dest, copyDir(src, dest)
+	}
+	return dest, copyDir(cloneDir, dest)
+}
+
 func expandHome(path string) (string, error) {
 	if strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
@@ -123,11 +185,25 @@ func expandHome(path string) (string, error) {
 	return path, nil
 }
 
+func validatePathComponent(s string) error {
+	if s == "" {
+		return fmt.Errorf("路径组件不能为空")
+	}
+	if strings.Contains(s, "/") || strings.Contains(s, "\\") {
+		return fmt.Errorf("路径组件不能包含分隔符")
+	}
+	if s == "." || s == ".." {
+		return fmt.Errorf("路径组件不能是 . 或 ..")
+	}
+	return nil
+}
+
 func downloadFile(url, dest string) error {
 	if !strings.HasPrefix(url, "https://") {
 		return fmt.Errorf("下载 URL 必须使用 HTTPS")
 	}
-	resp, err := http.Get(url)
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Get(url)
 	if err != nil {
 		return fmt.Errorf("请求下载失败: %w", err)
 	}
@@ -149,7 +225,7 @@ func downloadFile(url, dest string) error {
 func verifyChecksum(path, checksum string) error {
 	parts := strings.SplitN(checksum, ":", 2)
 	if len(parts) != 2 || parts[0] != "sha256" {
-		return nil
+		return fmt.Errorf("不支持的校验算法，仅支持 sha256")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -197,11 +273,57 @@ func unzip(src, dest string) error {
 			return fmt.Errorf("创建文件失败: %w", err)
 		}
 		_, err = io.Copy(out, rc)
-		out.Close()
 		rc.Close()
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
 		if err != nil {
 			return fmt.Errorf("解压文件失败: %w", err)
 		}
 	}
 	return nil
+}
+
+func copyDir(src, dest string) error {
+	if err := os.MkdirAll(dest, 0o755); err != nil {
+		return fmt.Errorf("创建目标目录失败: %w", err)
+	}
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		target := filepath.Join(dest, rel)
+		if !strings.HasPrefix(target, filepath.Clean(dest)+string(os.PathSeparator)) {
+			return fmt.Errorf("非法路径: %s", rel)
+		}
+		if info.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			in.Close()
+			return fmt.Errorf("创建父目录失败: %w", err)
+		}
+		out, err := os.Create(target)
+		if err != nil {
+			in.Close()
+			return err
+		}
+		_, err = io.Copy(out, in)
+		in.Close()
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+		return err
+	})
 }

@@ -29,6 +29,8 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 		return Result{}, fmt.Errorf("解析 hooks 事件失败: %w", err)
 	}
 
+	redactFields := hooks.ResolveRedactFields(manifest, tcfg)
+
 	targetIDEs := manifest.Targets
 	if len(opts.IDEs) > 0 {
 		targetIDEs = opts.IDEs
@@ -36,7 +38,7 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 
 	workBin, err := os.Executable()
 	if err != nil {
-		workBin = "work"
+		return Result{}, fmt.Errorf("获取 work 可执行文件路径失败: %w", err)
 	}
 
 	var installedIDEs []string
@@ -45,11 +47,12 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 	var files []string
 
 	sidecar := &hooks.Sidecar{
-		Name:    manifest.Name,
-		Version: manifest.Version,
-		Scope:   opts.Scope,
-		WorkBin: workBin,
-		IDEs:    map[string]hooks.SidecarIDE{},
+		Name:         manifest.Name,
+		Version:      manifest.Version,
+		Scope:        opts.Scope,
+		WorkBin:      workBin,
+		IDEs:         map[string]hooks.SidecarIDE{},
+		RedactFields: redactFields,
 	}
 
 	ideList := targetIDEs

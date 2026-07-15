@@ -69,9 +69,34 @@ func Save(root *yaml.Node) error {
 	if err != nil {
 		return fmt.Errorf("编码配置失败: %w", err)
 	}
-	if err := os.WriteFile(p, data, 0600); err != nil {
-		return fmt.Errorf("写入配置文件失败: %w", err)
+
+	dir := filepath.Dir(p)
+	tmp, err := os.CreateTemp(dir, ".config-*.yaml")
+	if err != nil {
+		return fmt.Errorf("创建临时配置文件失败: %w", err)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("写入临时配置文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时配置文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, p); err != nil {
+		// Windows: 目标文件存在时 Rename 可能失败，先删除再重命名
+		_ = os.Remove(p)
+		if err2 := os.Rename(tmpPath, p); err2 != nil {
+			return fmt.Errorf("原子替换配置文件失败: %w", err2)
+		}
+	}
+	cleanup = false
 	configcache.Invalidate(p)
 	return nil
 }

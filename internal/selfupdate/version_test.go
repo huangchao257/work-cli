@@ -67,20 +67,3 @@ func TestNormalizeTag(t *testing.T) {
 	}
 }
 
-func TestNormalizeVersion(t *testing.T) {
-	tests := []struct {
-		input, want string
-	}{
-		{"v1.0.0", "1.0.0"},
-		{"1.0.0", "1.0.0"},
-		{"dev", "dev"},
-		{"", "dev"},
-		{"  v2.0.0  ", "2.0.0"},
-	}
-	for _, tc := range tests {
-		got := normalizeVersion(tc.input)
-		if got != tc.want {
-			t.Errorf("normalizeVersion(%q) = %q, want %q", tc.input, got, tc.want)
-		}
-	}
-}

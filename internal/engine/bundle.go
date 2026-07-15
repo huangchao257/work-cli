@@ -9,6 +9,7 @@ import (
 	"github.com/huangchao257/work-cli/internal/adapter"
 	"github.com/huangchao257/work-cli/internal/bundle"
 	"github.com/huangchao257/work-cli/internal/graph"
+	"github.com/huangchao257/work-cli/internal/installer"
 	"github.com/huangchao257/work-cli/internal/platform"
 	"github.com/huangchao257/work-cli/internal/state"
 )
@@ -123,11 +124,11 @@ func installBundle(ctx context.Context, pkgDir string, opts Options, refRaw stri
 		},
 	}
 	if !opts.DryRun {
-		if err := saveStateRecord(rec, opts.Scope); err != nil {
-			return Result{}, err
-		}
 		if err := runBundlePostInstall(ctx, manifest, opts); err != nil {
 			warnings = append(warnings, fmt.Sprintf("安装后初始化未完成: %v（可手动执行 work graph init）", err))
+		}
+		if err := saveStateRecord(rec, opts.Scope); err != nil {
+			return Result{}, err
 		}
 	}
 
@@ -197,7 +198,7 @@ func runBundlePostInstall(ctx context.Context, manifest *bundle.Manifest, opts O
 			fmt.Printf("（预览）将执行 post_install: %s\n", manifest.PostInstall.Command)
 			return nil
 		}
-		return runInDir(ctx, ".", manifest.PostInstall.Command)
+		return installer.RunInDir(ctx, ".", manifest.PostInstall.Command)
 	default:
 		return fmt.Errorf("未知 post_install.action: %s（支持 graph_init 或 command）", manifest.PostInstall.Action)
 	}

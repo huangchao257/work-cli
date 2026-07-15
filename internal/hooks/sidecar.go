@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/huangchao257/work-cli/internal/platform"
 )
@@ -25,11 +26,12 @@ type SidecarIDE struct {
 }
 
 type Sidecar struct {
-	Name    string                `json:"name"`
-	Version string                `json:"version"`
-	Scope   string                `json:"scope"`
-	WorkBin string                `json:"work_bin"`
-	IDEs    map[string]SidecarIDE `json:"ides"`
+	Name        string                `json:"name"`
+	Version     string                `json:"version"`
+	Scope       string                `json:"scope"`
+	WorkBin     string                `json:"work_bin"`
+	IDEs        map[string]SidecarIDE `json:"ides"`
+	RedactFields []string             `json:"redact_fields,omitempty"`
 }
 
 func SidecarPath(name string) (string, error) {
@@ -46,8 +48,11 @@ func LoadSidecar(name string) (*Sidecar, error) {
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|os.O_CREATE, 0o600)
+	f, err := os.OpenFile(path, os.O_RDONLY, 0o600)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("未找到 hooks 安装记录: %s", name)
+		}
 		return nil, fmt.Errorf("打开 sidecar 文件失败: %w", err)
 	}
 	defer f.Close()
@@ -82,6 +87,34 @@ func SaveSidecar(sc *Sidecar) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("创建 sidecar 目录失败: %w", err)
 	}
+
+	data, err := json.MarshalIndent(sc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("编码 sidecar 失败: %w", err)
+	}
+
+	// 原子写入：先写临时文件，加锁后 rename，避免 truncate 中途崩溃导致文件为空。
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".sidecar-*.json")
+	if err != nil {
+		return fmt.Errorf("创建临时 sidecar 文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("写入临时 sidecar 文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时 sidecar 文件失败: %w", err)
+	}
+
+	// 打开目标文件加独占锁，确保 rename 时无并发读取。
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return fmt.Errorf("打开 sidecar 文件失败: %w", err)
@@ -92,16 +125,10 @@ func SaveSidecar(sc *Sidecar) error {
 	}
 	defer func() { _ = platform.FlockUnlock(f) }()
 
-	data, err := json.MarshalIndent(sc, "", "  ")
-	if err != nil {
-		return fmt.Errorf("编码 sidecar 失败: %w", err)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子替换 sidecar 文件失败: %w", err)
 	}
-	if err := f.Truncate(0); err != nil {
-		return fmt.Errorf("清空 sidecar 文件失败: %w", err)
-	}
-	if _, err := f.WriteAt(data, 0); err != nil {
-		return fmt.Errorf("写入 sidecar 文件失败: %w", err)
-	}
+	cleanup = false
 	return nil
 }
 
@@ -132,19 +159,6 @@ func RemoveSidecar(name string) error {
 
 func IsWorkManagedCommand(cmd string) bool {
 	return filepath.Base(filepath.Dir(cmd)) == workTelemetryDir ||
-		contains(cmd, "/"+workTelemetryDir+"/") ||
-		contains(cmd, `\`+workTelemetryDir+`\`)
-}
-
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (s == sub || len(sub) == 0 || indexOf(s, sub) >= 0)
-}
-
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
-	}
-	return -1
+		strings.Contains(cmd, "/"+workTelemetryDir+"/") ||
+		strings.Contains(cmd, `\`+workTelemetryDir+`\`)
 }

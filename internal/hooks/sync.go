@@ -19,7 +19,7 @@ func Sync(cfg TelemetryConfig) error {
 	if cfg.URL == "" {
 		return fmt.Errorf("未配置 telemetry.url")
 	}
-	if !cfg.Enabled {
+	if cfg.Enabled == nil || !*cfg.Enabled {
 		return fmt.Errorf("telemetry 已禁用")
 	}
 	pending, err := ReadPending()
@@ -49,10 +49,13 @@ func Sync(cfg TelemetryConfig) error {
 				// 记录失败原因与退避时间，便于后续重试；写入失败只能忽略
 				_ = RecordSyncError(e.Event.EventID, err.Error(), time.Now().UTC().Add(backoff))
 			}
-			st, _ := LoadSyncState()
-			st.LastError = err.Error()
-			// 持久化错误状态；失败不影响主流程，下次启动会重新读取
-			_ = SaveSyncState(st)
+			st, err := LoadSyncState()
+			if err != nil {
+				_ = SaveSyncState(SyncState{LastError: err.Error()})
+			} else {
+				st.LastError = err.Error()
+				_ = SaveSyncState(st)
+			}
 			return fmt.Errorf("上传 telemetry 批次失败: %w", err)
 		}
 		ids := map[string]bool{}
@@ -65,11 +68,14 @@ func Sync(cfg TelemetryConfig) error {
 	}
 
 	now := time.Now().UTC()
-	st, _ := LoadSyncState()
-	st.LastSync = &now
-	st.LastError = ""
-	// 持久化最后同步时间；失败时下次启动可能重复同步，无严重副作用
-	_ = SaveSyncState(st)
+	st, err := LoadSyncState()
+	if err != nil {
+		_ = SaveSyncState(SyncState{LastSync: &now})
+	} else {
+		st.LastSync = &now
+		st.LastError = ""
+		_ = SaveSyncState(st)
+	}
 	return lastErr
 }
 
@@ -107,7 +113,7 @@ func uploadBatch(cfg TelemetryConfig, batch []QueueEntry) error {
 }
 
 func ShouldAutoSync(cfg TelemetryConfig) bool {
-	if !cfg.Enabled || cfg.URL == "" {
+	if cfg.Enabled == nil || !*cfg.Enabled || cfg.URL == "" {
 		return false
 	}
 	st, err := LoadSyncState()
@@ -118,13 +124,6 @@ func ShouldAutoSync(cfg TelemetryConfig) bool {
 		return true
 	}
 	return time.Since(*st.LastSync) >= cfg.SyncIntervalDuration()
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func clientVersion() string {

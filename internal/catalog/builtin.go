@@ -71,6 +71,9 @@ func examplesRoot() (string, error) {
 	}
 	if exe, err := os.Executable(); err == nil {
 		exe, _ = filepath.EvalSymlinks(exe)
+		if exe == "" {
+			exe, _ = os.Executable()
+		}
 		dir := filepath.Dir(exe)
 		for _, rel := range []string{
 			"examples",
@@ -98,8 +101,9 @@ func findExamplesUp(start string) string {
 		p := filepath.Join(dir, "examples")
 		if st, err := os.Stat(p); err == nil && st.IsDir() {
 			if fileExists(filepath.Join(p, "dev-kit", "bundle.yaml")) {
-				abs, _ := filepath.Abs(p)
-				return abs
+				if abs, err := filepath.Abs(p); err == nil {
+					return abs
+				}
 			}
 		}
 		parent := filepath.Dir(dir)

@@ -251,9 +251,30 @@ func SaveSyncState(st SyncState) error {
 	if err != nil {
 		return fmt.Errorf("编码同步状态失败: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
-		return fmt.Errorf("写入同步状态文件失败: %w", err)
+
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".sync-state-*.json")
+	if err != nil {
+		return fmt.Errorf("创建临时同步状态文件失败: %w", err)
 	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	if _, err := tmp.Write(data); err != nil {
+		return fmt.Errorf("写入临时同步状态文件失败: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时同步状态文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子替换同步状态文件失败: %w", err)
+	}
+	cleanup = false
 	return nil
 }
 
@@ -262,9 +283,14 @@ func updatePendingCount() error {
 	if err != nil {
 		return fmt.Errorf("统计待上报条目失败: %w", err)
 	}
-	st, _ := LoadSyncState()
-	st.PendingCount = len(pending)
-	return SaveSyncState(st)
+	st, err := LoadSyncState()
+	if err != nil {
+		_ = SaveSyncState(SyncState{PendingCount: len(pending)})
+	} else {
+		st.PendingCount = len(pending)
+		_ = SaveSyncState(st)
+	}
+	return nil
 }
 
 func CountPending() (int, error) {

@@ -14,7 +14,7 @@ import (
 )
 
 type TelemetryConfig struct {
-	Enabled      bool     `yaml:"enabled"`
+	Enabled      *bool    `yaml:"enabled"`
 	URL          string   `yaml:"url"`
 	BatchSize    int      `yaml:"batch_size"`
 	SyncInterval string   `yaml:"sync_interval"`
@@ -49,8 +49,9 @@ func LoadTelemetryConfig() (TelemetryConfig, error) {
 }
 
 func defaultTelemetryConfig() TelemetryConfig {
+	enabled := true
 	return TelemetryConfig{
-		Enabled:      true,
+		Enabled:      &enabled,
 		BatchSize:    50,
 		SyncInterval: "5m",
 		MaxRetries:   10,
@@ -82,10 +83,12 @@ func mergeTelemetryConfig(dst *TelemetryConfig, src TelemetryConfig) {
 	if len(src.Redact) > 0 {
 		dst.Redact = src.Redact
 	}
-	// enabled: only override if explicitly set in yaml — use pointer would be better;
-	// for MVP treat URL presence as signal; zero value enabled stays true unless WORK_TELEMETRY_ENABLED=false
+	if src.Enabled != nil {
+		dst.Enabled = src.Enabled
+	}
 	if v := os.Getenv("WORK_TELEMETRY_ENABLED"); v != "" {
-		dst.Enabled = strings.EqualFold(v, "true") || v == "1"
+		val := strings.EqualFold(v, "true") || v == "1"
+		dst.Enabled = &val
 	}
 	if u := os.Getenv("WORK_TELEMETRY_URL"); u != "" {
 		dst.URL = u
@@ -119,6 +122,31 @@ func ResolveRedactFields(m *Manifest, cfg TelemetryConfig) []string {
 	}
 	if m != nil {
 		for _, s := range m.Telemetry.Redact {
+			add(s)
+		}
+	}
+	return out
+}
+
+// resolveRedactFromSidecar loads per-kit redact rules from the sidecar and merges
+// them with the global telemetry config defaults. This replaces the ResolveRedactFields
+// call when the manifest is not available at report time.
+func resolveRedactFromSidecar(cfg TelemetryConfig, name string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	for _, s := range cfg.Redact {
+		add(s)
+	}
+	if sc, err := LoadSidecar(name); err == nil {
+		for _, s := range sc.RedactFields {
 			add(s)
 		}
 	}
