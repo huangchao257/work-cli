@@ -4,7 +4,6 @@
 package engine
 
 import (
-	"errors"
 	"os"
 	"strings"
 
@@ -12,7 +11,7 @@ import (
 )
 
 // checkMissingEnv 检查 envNames 列表中的环境变量，若任一未设置则收集缺失名称并返回
-// 包含缺失变量名称和设置提示的组合错误。envNames 为空时返回 nil。
+// 包含缺失变量名称和设置提示的环境错误（退出码 3）。envNames 为空时返回 nil。
 func checkMissingEnv(envNames []string) error {
 	missing := make([]string, 0, len(envNames))
 	for _, name := range envNames {
@@ -31,5 +30,5 @@ func checkMissingEnv(envNames []string) error {
 		b.WriteString(platform.EnvSetHint(name))
 		b.WriteByte('\n')
 	}
-	return errors.New(b.String())
+	return envError("%s", b.String())
 }

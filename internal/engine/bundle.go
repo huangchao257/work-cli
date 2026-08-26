@@ -38,7 +38,7 @@ func installBundle(ctx context.Context, pkgDir string, opts Options, refRaw stri
 		}
 		if !a.Detect() {
 			if len(opts.IDEs) > 0 {
-				return Result{}, fmt.Errorf("未检测到 IDE: %s", name)
+				return Result{}, envError("未检测到 IDE: %s", name)
 			}
 			skipped = append(skipped, name)
 			warnings = append(warnings, fmt.Sprintf("未检测到 %s，已跳过", name))
@@ -47,7 +47,7 @@ func installBundle(ctx context.Context, pkgDir string, opts Options, refRaw stri
 		adapters = append(adapters, a)
 	}
 	if len(adapters) == 0 && len(targetIDEs) > 0 && len(skipped) == len(targetIDEs) {
-		return Result{}, fmt.Errorf("未检测到任何目标 IDE")
+		return Result{}, envError("未检测到任何目标 IDE")
 	}
 	if len(adapters) == 0 {
 		for _, a := range adapter.All() {
@@ -193,10 +193,6 @@ func runBundlePostInstall(ctx context.Context, manifest *bundle.Manifest, opts O
 	case "command":
 		if manifest.PostInstall.Command == "" {
 			return fmt.Errorf("post_install.command 不能为空")
-		}
-		if opts.DryRun {
-			fmt.Printf("（预览）将执行 post_install: %s\n", manifest.PostInstall.Command)
-			return nil
 		}
 		return installer.RunInDir(ctx, ".", manifest.PostInstall.Command)
 	default:

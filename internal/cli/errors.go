@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 
+	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/usage"
 )
 
@@ -23,6 +24,10 @@ func ExitCode(err error) int {
 	var ee *exitError
 	if errors.As(err, &ee) {
 		return ee.code
+	}
+	// 环境不满足（缺 env、指定 IDE 未安装）→ 3（见 docs/design/overview.md §7）。
+	if engine.IsEnvError(err) {
+		return 3
 	}
 	return 1
 }
