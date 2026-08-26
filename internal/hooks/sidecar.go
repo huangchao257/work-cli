@@ -26,12 +26,12 @@ type SidecarIDE struct {
 }
 
 type Sidecar struct {
-	Name        string                `json:"name"`
-	Version     string                `json:"version"`
-	Scope       string                `json:"scope"`
-	WorkBin     string                `json:"work_bin"`
-	IDEs        map[string]SidecarIDE `json:"ides"`
-	RedactFields []string             `json:"redact_fields,omitempty"`
+	Name         string                `json:"name"`
+	Version      string                `json:"version"`
+	Scope        string                `json:"scope"`
+	WorkBin      string                `json:"work_bin"`
+	IDEs         map[string]SidecarIDE `json:"ides"`
+	RedactFields []string              `json:"redact_fields,omitempty"`
 }
 
 func SidecarPath(name string) (string, error) {
