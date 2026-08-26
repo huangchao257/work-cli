@@ -81,7 +81,7 @@ func Run(opts Options) (Result, error) {
 	// 校验 manifest 存在
 	kind, err := pkgmanifest.DetectKind(dir)
 	if err != nil {
-		return Result{}, usageError("%w", err)
+		return Result{}, usage.AsError(err)
 	}
 
 	// 读取 manifest 的 name/version
@@ -143,7 +143,6 @@ func readManifestMeta(dir string, kind pkgmanifest.Kind) (pkgmanifest.Meta, erro
 	}
 	return m, nil
 }
-
 
 // resolveOutputPath 解析输出路径：空→<dir>/../<defaultName>；已存在目录→其下 <defaultName>；否则视为完整文件路径。
 func resolveOutputPath(output, dir, defaultName string) string {

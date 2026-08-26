@@ -90,7 +90,7 @@ func Run(opts Options) (Result, error) {
 	if err := verifyChecksumFile(opts.Archive, checksumPath); err != nil {
 		var ce *checksumError
 		if errors.As(err, &ce) {
-			return Result{}, usageError("%w", ce)
+			return Result{}, usage.AsError(ce)
 		}
 		return Result{}, err
 	}
@@ -98,7 +98,7 @@ func Run(opts Options) (Result, error) {
 	// 3. 从归档内 manifest 推断 name/version/type
 	name, version, typ, err := InspectArchive(opts.Archive)
 	if err != nil {
-		return Result{}, usageError("%w", err)
+		return Result{}, usage.AsError(err)
 	}
 
 	// 4. registry.url 必须配置
