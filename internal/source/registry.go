@@ -74,8 +74,13 @@ func ResolveRegistry(name string, cfg *UserConfig) (string, error) {
 	if cfg == nil || strings.TrimSpace(cfg.Registry.URL) == "" {
 		return "", fmt.Errorf("未配置 registry.url，请在 ~/.work/config.yaml 中设置")
 	}
-	url := strings.TrimRight(cfg.Registry.URL, "/") + "/bundles/" + name + "/latest"
-	client := &http.Client{Timeout: 60 * time.Second}
+	// 元数据请求本身必须走 HTTPS，否则 download_url 可被明文掉包。
+	base := strings.TrimSpace(cfg.Registry.URL)
+	if !strings.HasPrefix(base, "https://") {
+		return "", fmt.Errorf("registry.url 必须使用 HTTPS")
+	}
+	url := strings.TrimRight(base, "/") + "/bundles/" + name + "/latest"
+	client := newSecureHTTPClient(60 * time.Second)
 	resp, err := client.Get(url)
 	if err != nil {
 		return "", fmt.Errorf("请求 Registry 失败: %w", err)
@@ -118,6 +123,10 @@ func resolveHTTP(meta registryResponse, cache string) (string, error) {
 	if _, err := os.Stat(dest); err == nil {
 		return dest, nil
 	}
+	// 前置校验校验和非空：避免在缺失完整性的情况下下载（浪费带宽且内容不可信）。
+	if strings.TrimSpace(meta.Checksum) == "" {
+		return "", fmt.Errorf("registry 响应缺少 checksum（sha256），拒绝安装")
+	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return "", fmt.Errorf("创建缓存目录失败: %w", err)
 	}
@@ -125,10 +134,9 @@ func resolveHTTP(meta registryResponse, cache string) (string, error) {
 	if err := downloadFile(meta.DownloadURL, zipPath); err != nil {
 		return "", fmt.Errorf("下载归档失败: %w", err)
 	}
-	if meta.Checksum != "" {
-		if err := verifyChecksum(zipPath, meta.Checksum); err != nil {
-			return "", fmt.Errorf("校验和不匹配: %w", err)
-		}
+	// 校验和必填：无 sha256 校验和则拒绝安装，避免 MITM/恶意元数据掉包后的内容零完整性验证。
+	if err := verifyChecksumRequired(zipPath, meta.Checksum); err != nil {
+		return "", err
 	}
 	if err := unzip(zipPath, dest); err != nil {
 		return "", fmt.Errorf("解压归档失败: %w", err)
@@ -202,7 +210,7 @@ func downloadFile(url, dest string) error {
 	if !strings.HasPrefix(url, "https://") {
 		return fmt.Errorf("下载 URL 必须使用 HTTPS")
 	}
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := newSecureHTTPClient(120 * time.Second)
 	resp, err := client.Get(url)
 	if err != nil {
 		return fmt.Errorf("请求下载失败: %w", err)
@@ -237,6 +245,36 @@ func verifyChecksum(path, checksum string) error {
 		return fmt.Errorf("checksum 不匹配")
 	}
 	return nil
+}
+
+// verifyChecksumRequired 校验下载产物的 sha256 校验和；校验和缺失或为空时报错。
+func verifyChecksumRequired(path, checksum string) error {
+	if strings.TrimSpace(checksum) == "" {
+		return fmt.Errorf("registry 响应缺少 checksum（sha256），拒绝安装")
+	}
+	if err := verifyChecksum(path, checksum); err != nil {
+		return fmt.Errorf("校验和不匹配: %w", err)
+	}
+	return nil
+}
+
+// newSecureHTTPClient 返回一个禁止跨协议降级重定向的 HTTP 客户端。
+// 防止恶意 Registry 将 https 的 download_url 302 到 http://（含内网/元数据服务）
+// 从而绕过 downloadFile 入口的 "必须 HTTPS" 检查。本项目面向内网 Registry，
+// 故不拒私网地址，仅禁止 https→http 降级。
+func newSecureHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("重定向次数过多")
+			}
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("拒绝重定向到非 HTTPS 协议: %s", req.URL.Scheme)
+			}
+			return nil
+		},
+	}
 }
 
 func unzip(src, dest string) error {

@@ -35,16 +35,17 @@ func resolveMaven(meta registryResponse, registryURL string, cache string) (stri
 	groupPath := strings.ReplaceAll(groupID, ".", "/")
 	jarURL := strings.TrimRight(registryURL, "/") + "/" + groupPath + "/" + artifactID + "/" + version + "/" + artifactID + "-" + version + ".jar"
 	jarPath := filepath.Join(cache, "registry", meta.Name, meta.Version+".jar")
+	if strings.TrimSpace(meta.Checksum) == "" {
+		return "", fmt.Errorf("registry 响应缺少 checksum（sha256），拒绝安装")
+	}
 	if err := os.MkdirAll(filepath.Dir(jarPath), 0o755); err != nil {
 		return "", fmt.Errorf("创建缓存目录失败: %w", err)
 	}
 	if err := downloadFile(jarURL, jarPath); err != nil {
 		return "", fmt.Errorf("下载 maven 归档失败: %w", err)
 	}
-	if meta.Checksum != "" {
-		if err := verifyChecksum(jarPath, meta.Checksum); err != nil {
-			return "", fmt.Errorf("校验和不匹配: %w", err)
-		}
+	if err := verifyChecksumRequired(jarPath, meta.Checksum); err != nil {
+		return "", err
 	}
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return "", fmt.Errorf("创建缓存目录失败: %w", err)

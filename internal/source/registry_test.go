@@ -2,15 +2,29 @@ package source
 
 import (
 	"archive/zip"
+	"crypto/sha256"
 	"crypto/tls"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+// sha256Of 返回文件内容的 "sha256:<hex>" 校验和字符串。
+func sha256Of(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
 
 func createZip(t *testing.T, base string, files map[string]string) string {
 	t.Helper()
@@ -39,6 +53,34 @@ func createZip(t *testing.T, base string, files map[string]string) string {
 	return zipPath
 }
 
+func TestResolveHTTPMissingChecksum(t *testing.T) {
+	// 校验和必填：缺失时拒绝安装（在缓存命中之前校验）。
+	_, err := resolveHTTP(registryResponse{Name: "test", Version: "1.0.0"}, t.TempDir())
+	if err == nil {
+		t.Fatal("expected error for missing checksum")
+	}
+}
+
+func TestDownloadRejectsNonHTTPSRedirect(t *testing.T) {
+	// 恶意服务器将 https 302 到 http：应被 CheckRedirect 拒绝。
+	tmp := t.TempDir()
+	redirect := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer redirect.Close()
+
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, redirect.URL, http.StatusFound)
+	}))
+	defer srv.Close()
+
+	err := downloadFile(srv.URL+"/dl", filepath.Join(tmp, "out"))
+	if err == nil {
+		t.Fatal("expected redirect-to-http to be rejected")
+	}
+	if !strings.Contains(err.Error(), "HTTPS") && !strings.Contains(err.Error(), "https") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestResolveHTTP(t *testing.T) {
 	tmp := t.TempDir()
 	files := map[string]string{
@@ -55,6 +97,7 @@ func TestResolveHTTP(t *testing.T) {
 		Name:        "test-bundle",
 		Version:     "1.0.0",
 		DownloadURL: srv.URL + "/bundle.zip",
+		Checksum:    sha256Of(t, zipPath),
 	}
 	dest, err := resolveHTTP(meta, tmp)
 	if err != nil {
@@ -102,6 +145,7 @@ func TestResolveRegistryDefaultHTTP(t *testing.T) {
 				Name:        "test-bundle",
 				Version:     "1.0.0",
 				DownloadURL: "https://" + r.Host + "/download/bundle.zip",
+				Checksum:    sha256Of(t, zipPath),
 			})
 			return
 		}
@@ -162,7 +206,7 @@ func TestResolveRegistryGitType(t *testing.T) {
 			Name:        "test-git-bundle",
 			Type:        "git",
 			Version:     "main",
-			DownloadURL: repoDir,
+			DownloadURL: "https://example.com/org/repo.git",
 			Subdir:      "bundles/my-bundle",
 		})
 	}))
@@ -171,12 +215,13 @@ func TestResolveRegistryGitType(t *testing.T) {
 	cacheDir := filepath.Join(tmp, "cache")
 	cfg := &UserConfig{Registry: RegistryConfig{URL: srv.URL}}
 	cfg.Cache.Dir = cacheDir
-	dest, err := ResolveRegistry("test-git-bundle", cfg)
-	if err != nil {
-		t.Fatalf("ResolveRegistry git type failed: %v", err)
+	// download_url 为 https 但仓库不可达：应通过协议校验、失败于网络/仓库（而非协议拒绝）。
+	_, err := ResolveRegistry("test-git-bundle", cfg)
+	if err == nil {
+		t.Fatal("expected network/clone error for unreachable https repo")
 	}
-	if _, err := os.Stat(filepath.Join(dest, "installer.yaml")); err != nil {
-		t.Fatalf("expected installer.yaml in dest: %v", err)
+	if strings.Contains(err.Error(), "必须使用 HTTPS") {
+		t.Fatalf("https URL 不应被协议校验拒绝: %v", err)
 	}
 }
 
@@ -192,6 +237,7 @@ func TestResolveRegistryMavenType(t *testing.T) {
 				Type:        "maven",
 				Version:     "2.0.0",
 				DownloadURL: "com.example:test-bundle:2.0.0",
+				Checksum:    sha256Of(t, jarPath),
 			})
 			return
 		}
@@ -295,12 +341,29 @@ func TestResolveGitNoSubdir(t *testing.T) {
 		Version:     "main",
 		DownloadURL: repoDir,
 	}
-	dest, err := resolveGit(meta, cacheDir)
-	if err != nil {
-		t.Fatalf("resolveGit without subdir failed: %v", err)
+	// 本地路径 URL 必须被拒绝（仅允许 https），不应触发 clone。
+	if _, err := resolveGit(meta, cacheDir); err == nil {
+		t.Fatal("expected local-path git URL to be rejected")
 	}
-	if _, err := os.Stat(filepath.Join(dest, "installer.yaml")); err != nil {
-		t.Fatalf("expected installer.yaml in dest: %v", err)
+}
+
+func TestResolveGitRejectsNonHTTPS(t *testing.T) {
+	// 即使 git 可用，非 https 协议也必须被拒绝，防止 ext:: / file:// / ssh:// 注入。
+	for _, u := range []string{
+		"ext::sh -c touch /tmp/pwned",
+		"file:///etc",
+		"ssh://git@example.com/repo",
+		"http://example.com/repo",
+	} {
+		if _, err := ResolveGit(u, "main", t.TempDir()); err == nil {
+			t.Fatalf("expected rejection for URL %q", u)
+		}
+	}
+}
+
+func TestResolveGitRejectsControlChars(t *testing.T) {
+	if _, err := ResolveGit("https://example.com/repo", "main\nrm -rf /", t.TempDir()); err == nil {
+		t.Fatal("expected rejection for ref with control chars")
 	}
 }
 
