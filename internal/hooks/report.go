@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -78,8 +79,13 @@ func Report(in ReportInput) (ReportResult, error) {
 	}
 
 	if in.TriggerSync && cfg.Enabled != nil && *cfg.Enabled && cfg.URL != "" {
-		// 异步触发同步：fire-and-forget，goroutine 内的错误无法返回调用方
-		go func() { _ = Sync(cfg) }()
+		// 同步触发上报：带 3s 上限，避免阻塞 hook 流程（事件已落盘到本地队列，
+		// 即使本次同步超时，也会在下次 work hooks sync 时重试）。
+		// 不能用 fire-and-forget goroutine——本进程在 report 返回后立即退出，goroutine
+		// 会随进程终止而必死，导致自动同步形同虚设。
+		syncCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_ = SyncWithContext(syncCtx, cfg)
+		cancel()
 	}
 
 	if _, err := in.Stdout.Write(raw); err != nil {

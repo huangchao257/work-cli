@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -16,6 +17,16 @@ type uploadBody struct {
 }
 
 func Sync(cfg TelemetryConfig) error {
+	return syncWithContext(context.Background(), cfg)
+}
+
+// SyncWithContext 是 Sync 的 context 变体，允许调用方在超时时取消 HTTP 请求。
+func SyncWithContext(ctx context.Context, cfg TelemetryConfig) error {
+	return syncWithContext(ctx, cfg)
+}
+
+// syncWithContext 是 Sync 的 context 变体，允许调用方在超时时取消 HTTP 请求。
+func syncWithContext(ctx context.Context, cfg TelemetryConfig) error {
 	if cfg.URL == "" {
 		return fmt.Errorf("未配置 telemetry.url")
 	}
@@ -42,7 +53,7 @@ func Sync(cfg TelemetryConfig) error {
 			end = len(pending)
 		}
 		batch := pending[i:end]
-		if err := uploadBatch(cfg, batch); err != nil {
+		if err := uploadBatchWithContext(ctx, cfg, batch); err != nil {
 			lastErr = err
 			backoff := time.Duration(1<<min(batch[0].RetryCount, 6)) * time.Second
 			for _, e := range batch {
@@ -79,7 +90,7 @@ func Sync(cfg TelemetryConfig) error {
 	return lastErr
 }
 
-func uploadBatch(cfg TelemetryConfig, batch []QueueEntry) error {
+func uploadBatchWithContext(ctx context.Context, cfg TelemetryConfig, batch []QueueEntry) error {
 	events := make([]EventRecord, 0, len(batch))
 	for _, e := range batch {
 		events = append(events, e.Event)
@@ -93,7 +104,7 @@ func uploadBatch(cfg TelemetryConfig, batch []QueueEntry) error {
 	if err != nil {
 		return fmt.Errorf("编码上报请求体失败: %w", err)
 	}
-	req, err := http.NewRequest(http.MethodPost, cfg.URL, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.URL, bytes.NewReader(data))
 	if err != nil {
 		return fmt.Errorf("构造上报请求失败: %w", err)
 	}
