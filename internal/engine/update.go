@@ -55,8 +55,11 @@ func Update(ctx context.Context, name, scope string, dryRun bool) ([]Result, err
 			results = append(results, res)
 			continue
 		}
-		// 先安装新版本，再卸载旧版本，保证更新过程的原子性。
-		// 如果安装失败，旧版本仍可用；如果卸载失败，新版本已就绪。
+		// bundle/hooks 的 Install 本身即覆盖式更新：文件按 ID 覆盖（安装前先 RemoveAll
+		// 旧目标）、状态记录按 name+scope Upsert、hooks 合并前先清除旧 work 托管条目。
+		// 因此"更新" == 重新 Install。切不可再对同一 name/scope 调 Uninstall——那会把
+		// 刚装好的资源与记录一并删除（findRecord 命中的正是新写入的记录）。
+		// 若安装失败，旧版本仍在，天然具备原子性。
 		res, err := Install(ctx, Options{
 			Scope:  rec.Scope,
 			IDEs:   rec.IDEs,
@@ -66,25 +69,19 @@ func Update(ctx context.Context, name, scope string, dryRun bool) ([]Result, err
 		if err != nil {
 			return nil, err
 		}
-		if !dryRun {
-			if _, err := Uninstall(ctx, rec.Name, rec.Scope, false); err != nil {
-				return nil, err
-			}
-		}
 		results = append(results, res)
 	}
 	return results, nil
 }
 
 // resolveInstalledRef resolves the package source for an installed record.
-// Prefer the canonical resource name over legacy stored paths.
+// 仅接受受信资源名（内置/Registry）；拒绝本地路径与 git: 引用，防止项目级
+// 状态文件被恶意仓库注入任意命令（见 source.ParseTrustedRef）。
 func resolveInstalledRef(rec state.BundleRecord) (source.Ref, error) {
-	if ref, err := source.ParseInstallName(rec.Name); err == nil {
-		if err := source.ValidateInstallName(rec.Name); err == nil {
-			return ref, nil
-		}
+	if ref, err := source.ParseTrustedRef(rec.Name); err == nil {
+		return ref, nil
 	}
-	return source.ParseRef(rec.Ref)
+	return source.ParseTrustedRef(rec.Ref)
 }
 
 func updateCLI(ctx context.Context, ref source.Ref, rec state.BundleRecord, dryRun bool) (Result, error) {

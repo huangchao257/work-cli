@@ -67,6 +67,21 @@ func ValidateInstallName(name string) error {
 	return fmt.Errorf("未知资源 %q，可用内置资源: %s", name, strings.Join(names, ", "))
 }
 
+// ParseTrustedRef 解析「已安装记录」中保存的引用，仅允许内置/Registry 资源名。
+// 明确拒绝本地路径与 git: 引用——项目级 .work/installed.json 可能来自不可信仓库，
+// 若回退到 ParseRef 允许 ./本地目录 或 git: 引用，攻击者可借此在 update/uninstall
+// 时执行任意命令（installer.run/uninstall.run）。update 与 uninstall 的回退路径必须用本函数。
+func ParseTrustedRef(raw string) (Ref, error) {
+	ref, err := ParseInstallName(raw)
+	if err != nil {
+		return Ref{}, err
+	}
+	if err := ValidateInstallName(ref.Name); err != nil {
+		return Ref{}, err
+	}
+	return ref, nil
+}
+
 func ParseRef(raw string) (Ref, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

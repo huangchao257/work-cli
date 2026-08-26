@@ -34,7 +34,13 @@ func Uninstall(ctx context.Context, name, scope string, dryRun bool) (Result, er
 	case "cli":
 		{
 			var resolveErrors []string
-			ref, err := source.ParseRef(rec.Ref)
+			// 仅接受受信资源名；项目级 installed.json 可能来自不可信仓库，
+			// 禁止 ./本地目录 与 git: 引用（防止卸载时执行任意命令）。
+			ref, err := source.ParseTrustedRef(rec.Name)
+			if err != nil {
+				// 兼容旧记录：Ref 名称可能非规范；回退到受信的 rec.Ref，仍拒绝本地/git。
+				ref, err = source.ParseTrustedRef(rec.Ref)
+			}
 			if err != nil {
 				resolveErrors = append(resolveErrors, fmt.Sprintf("解析引用失败: %v", err))
 			} else {
