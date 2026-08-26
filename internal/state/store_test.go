@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -458,5 +459,47 @@ func TestStoreMigration(t *testing.T) {
 	}
 	if f.Version != 1 {
 		t.Fatalf("版本应保持 1，实际为: %d", f.Version)
+	}
+}
+
+// TestConcurrentUpsertNoLoss 验证并行写入不丢失更新。
+// 回归：atomicWrite 的 Remove+Rename 曾使锁绑定在会被更换的 inode 上，导致并发 Upsert
+// 丢失更新（40 并发仅剩 ~23-35 条）。修复后锁加在稳定锁文件上，应完整保留全部记录。
+func TestConcurrentUpsertNoLoss(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "installed.json")
+
+	var wg sync.WaitGroup
+	const n = 40
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			st, err := Open(path)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			errs[i] = st.Upsert(BundleRecord{Name: fmt.Sprintf("bundle-%d", i), Scope: "user"})
+		}(i)
+	}
+	wg.Wait()
+	for i, e := range errs {
+		if e != nil {
+			t.Fatalf("goroutine %d err: %v", i, e)
+		}
+	}
+
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := st.List("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recs) != n {
+		t.Fatalf("lost updates: got %d records, want %d", len(recs), n)
 	}
 }

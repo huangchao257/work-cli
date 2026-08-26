@@ -20,12 +20,22 @@ type Store struct {
 	mtime int64 // 缓存对应的文件 mtime (UnixNano)，0 表示无缓存
 }
 
+// Open 返回一个针对 path 的 Store。写操作会加跨进程锁。
 func Open(path string) (*Store, error) {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("创建状态目录失败: %w", err)
 	}
 	return &Store{path: path}, nil
+}
+
+// lockPath 返回状态文件的稳定锁文件路径。
+// 所有读写锁都必须加在锁文件上，而非状态文件本身：状态文件在 atomicWrite 中会被
+// Remove+Rename 更换 inode，而 flock 绑定 inode——若锁加在状态文件上，inode 更换后
+// 后到的写者锁的是新 inode，与先到写者的锁互不互斥，导致读-改-写无法串行化、并发
+// 写丢失更新。锁文件自身从不被 rename/remove，inode 永不变化。
+func (s *Store) lockPath() string {
+	return s.path + ".lock"
 }
 
 // Load 读取状态文件（加共享锁）返回快照。使用 mtime 缓存避免重复解析。
@@ -35,10 +45,11 @@ func (s *Store) Load() (*File, error) {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := platform.FlockLock(f, s.path, platform.FlockSH); err != nil {
-		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
+	lf, err := s.lock(platform.FlockSH)
+	if err != nil {
+		return nil, err
 	}
-	defer func() { _ = platform.FlockUnlock(f) }()
+	defer lf.Close()
 
 	return s.cachedRead(f)
 }
@@ -127,10 +138,11 @@ func (s *Store) Find(name, scope string) (*BundleRecord, error) {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := platform.FlockLock(f, s.path, platform.FlockSH); err != nil {
-		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
+	lf, err := s.lock(platform.FlockSH)
+	if err != nil {
+		return nil, err
 	}
-	defer func() { _ = platform.FlockUnlock(f) }()
+	defer lf.Close()
 
 	file, err := s.cachedRead(f)
 	if err != nil {
@@ -152,10 +164,11 @@ func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 		return nil, fmt.Errorf("打开状态文件失败: %w", err)
 	}
 	defer f.Close()
-	if err := platform.FlockLock(f, s.path, platform.FlockSH); err != nil {
-		return nil, fmt.Errorf("获取状态文件共享锁失败: %w", err)
+	lf, err := s.lock(platform.FlockSH)
+	if err != nil {
+		return nil, err
 	}
-	defer func() { _ = platform.FlockUnlock(f) }()
+	defer lf.Close()
 
 	file, err := s.cachedRead(f)
 	if err != nil {
@@ -173,18 +186,30 @@ func (s *Store) List(kindFilter string) ([]BundleRecord, error) {
 	return out, nil
 }
 
-// withLock 持有独占锁执行 fn，保证并发安全。
+// withLock 持有独占锁执行 fn，保证并发安全。锁加在稳定锁文件上。
 func (s *Store) withLock(fn func() error) error {
-	f, err := os.OpenFile(s.path, os.O_RDWR|os.O_CREATE, 0o600)
+	lf, err := s.lock(platform.FlockEX)
 	if err != nil {
-		return fmt.Errorf("打开状态文件失败: %w", err)
+		return err
 	}
-	defer f.Close()
-	if err := platform.FlockLock(f, s.path, platform.FlockEX); err != nil {
-		return fmt.Errorf("获取状态文件独占锁失败: %w", err)
-	}
-	defer func() { _ = platform.FlockUnlock(f) }()
+	defer lf.Close() // 关闭 fd 即释放 flock
 	return fn()
+}
+
+// lock 打开（或创建）稳定锁文件并对其加锁，返回已加锁的 *os.File。
+// 调用方 defer lf.Close() 释放锁。锁文件永不 rename/remove，inode 不变，
+// 因此跨进程互斥始终有效——这正是修复并发丢失更新的关键。
+func (s *Store) lock(how int) (*os.File, error) {
+	lockPath := s.lockPath()
+	lf, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("打开状态锁文件失败: %w", err)
+	}
+	if err := platform.FlockLock(lf, lockPath, how); err != nil {
+		lf.Close()
+		return nil, fmt.Errorf("获取状态文件锁失败: %w", err)
+	}
+	return lf, nil
 }
 
 // readStateFile 读状态文件（调用方需持有锁）。
