@@ -14,6 +14,17 @@ import (
 	"github.com/huangchao257/work-cli/internal/state"
 )
 
+// validateSourceInPkg 校验 src 位于 pkgDir 之内，防止源路径穿越包目录。
+func validateSourceInPkg(pkgDir, src string) error {
+	cleaned := filepath.Clean(src)
+	root := filepath.Clean(pkgDir)
+	sep := string(os.PathSeparator)
+	if !strings.HasPrefix(cleaned, root+sep) && cleaned != root {
+		return fmt.Errorf("源路径 %q 试图逃逸包目录", src)
+	}
+	return nil
+}
+
 func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw string) (Result, error) {
 	manifest, err := hooks.ParseDir(pkgDir)
 	if err != nil {
@@ -69,7 +80,7 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 		}
 		if !a.Detect() {
 			if len(opts.IDEs) > 0 {
-				return Result{}, fmt.Errorf("未检测到 IDE: %s", ideName)
+				return Result{}, envError("未检测到 IDE: %s", ideName)
 			}
 			skipped = append(skipped, ideName)
 			warnings = append(warnings, fmt.Sprintf("未检测到 %s，已跳过", ideName))
@@ -100,6 +111,10 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 
 		for _, hr := range manifest.Resources.Hooks {
 			src := filepath.Join(pkgDir, hr.Source)
+			// 源必须位于包目录内，防止 ../../../ 读包外文件（如 ~/.ssh/id_rsa）落盘。
+			if err := validateSourceInPkg(pkgDir, src); err != nil {
+				return Result{}, fmt.Errorf("hook 源 %s 非法: %w", hr.Source, err)
+			}
 			dst := filepath.Join(scriptDir, filepath.Base(hr.Source))
 			if err := copyutil.CopyFile(src, dst); err != nil {
 				return Result{}, fmt.Errorf("复制 hook 脚本 %s 失败: %w", hr.Source, err)
@@ -157,7 +172,7 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 	}
 
 	if len(installedIDEs) == 0 && len(ideList) > 0 {
-		return Result{}, fmt.Errorf("未检测到任何目标 IDE")
+		return Result{}, envError("未检测到任何目标 IDE")
 	}
 
 	if !opts.DryRun {

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/huangchao257/work-cli/internal/pkg/manifest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,6 +37,9 @@ func Validate(m *Manifest) error {
 	}
 	if strings.TrimSpace(m.Name) == "" {
 		return fmt.Errorf("installer.yaml 缺少 name 字段")
+	}
+	if err := manifest.ValidateID(m.Name); err != nil {
+		return fmt.Errorf("installer.yaml 名称非法: %w", err)
 	}
 	if strings.TrimSpace(m.Version) == "" {
 		return fmt.Errorf("installer.yaml 缺少 version 字段")

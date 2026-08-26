@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/huangchao257/work-cli/internal/pkg/manifest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,6 +41,9 @@ func Validate(m *Manifest) error {
 	if strings.TrimSpace(m.Name) == "" {
 		return fmt.Errorf("hooks.yaml 缺少 name")
 	}
+	if err := manifest.ValidateID(m.Name); err != nil {
+		return fmt.Errorf("hooks.yaml 名称非法: %w", err)
+	}
 	if strings.TrimSpace(m.Version) == "" {
 		return fmt.Errorf("hooks.yaml 缺少 version")
 	}
@@ -47,8 +51,8 @@ func Validate(m *Manifest) error {
 		return fmt.Errorf("hooks.yaml 至少需要一个 resources.hooks 项")
 	}
 	for _, h := range m.Resources.Hooks {
-		if strings.TrimSpace(h.ID) == "" {
-			return fmt.Errorf("hooks 资源缺少 id")
+		if err := manifest.ValidateID(h.ID); err != nil {
+			return fmt.Errorf("hooks 资源 id 非法: %w", err)
 		}
 		if strings.TrimSpace(h.Source) == "" {
 			return fmt.Errorf("hooks 资源 %s 缺少 source", h.ID)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"gopkg.in/yaml.v3"
 )
@@ -87,4 +88,24 @@ func DetectKind(dir string) (Kind, error) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// idPattern 限制资源标识符的字符集：字母、数字、连字符、下划线、点，且以字母或数字开头。
+// 这些标识符会进入文件路径（skills/<id>、rules/<id>.md）与生成的 shell 脚本
+// （telemetry.sh/wrapper 的引号内），禁止路径分隔符、`..`、空白与控制字符，防路径穿越与命令注入。
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+
+// ValidateID 校验资源标识符（skill/rule/mcp/hooks 的 id、套装 name 等）。
+// 返回 nil 表示合法，否则返回描述性错误。
+func ValidateID(id string) error {
+	if id == "" {
+		return fmt.Errorf("标识符不能为空")
+	}
+	if len(id) > 128 {
+		return fmt.Errorf("标识符过长（>128）: %q", id)
+	}
+	if !idPattern.MatchString(id) {
+		return fmt.Errorf("标识符 %q 含非法字符，仅允许字母、数字、连字符、下划线、点，且以字母或数字开头", id)
+	}
+	return nil
 }
