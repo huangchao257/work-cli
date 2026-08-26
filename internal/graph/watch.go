@@ -75,6 +75,15 @@ func Watch(ctx context.Context, opts WatchOptions) error {
 			if !ok {
 				return nil
 			}
+			// 新建目录需纳入监控：否则该目录内后续文件变更不会产生事件。
+			if event.Op&fsnotify.Create != 0 {
+				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
+					if err := addDirs(w, event.Name); err != nil {
+						fmt.Fprintf(os.Stderr, "添加新目录监控失败: %v\n", err)
+					}
+					continue
+				}
+			}
 			if !isSourceFile(event.Name) {
 				continue
 			}

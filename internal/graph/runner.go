@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/huangchao257/work-cli/internal/log"
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 const skillID = "codegraph-agents"
@@ -150,17 +151,15 @@ func codegraphStatus(root string) (map[string]any, error) {
 }
 
 func findScript(projectRoot, name string) (string, error) {
-	home, _ := os.UserHomeDir()
-	candidates := []string{
-		filepath.Join(projectRoot, ".cursor", "skills", skillID, "scripts", name),
+	// 用户级优先，项目级最后：防止恶意仓库自带同名脚本覆盖可信的用户级脚本、
+	// 并借 work graph init/sync/watch 反复执行（监控式持久化）。
+	var candidates []string
+	for _, ide := range []platform.IDE{platform.IDECursor, platform.IDEClaude, platform.IDEQoder} {
+		if d, err := platform.SkillDir(ide, "user", skillID); err == nil {
+			candidates = append(candidates, filepath.Join(d, "scripts", name))
+		}
 	}
-	if home != "" {
-		candidates = append(candidates,
-			filepath.Join(home, ".cursor", "skills", skillID, "scripts", name),
-			filepath.Join(home, ".claude", "skills", skillID, "scripts", name),
-			filepath.Join(home, ".qoder", "skills", skillID, "scripts", name),
-		)
-	}
+	candidates = append(candidates, filepath.Join(projectRoot, ".cursor", "skills", skillID, "scripts", name))
 	for _, c := range candidates {
 		if st, err := os.Stat(c); err == nil && !st.IsDir() {
 			return c, nil
