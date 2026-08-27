@@ -1,0 +1,105 @@
+openapi: 3.1.0
+info:
+  title: Demo 系统
+  version: "1.0.0"
+  description: 离线示例系统，用于演示 work api 三层命令、风险门禁与错误契约。
+servers:
+  - url: https://demo.invalid
+tags:
+  - name: pets
+    description: 宠物管理
+  - name: status
+    description: 系统状态
+paths:
+  /status:
+    get:
+      operationId: getStatus
+      tags: [status]
+      summary: 查看系统状态
+      x-work-risk: read
+      responses:
+        "200":
+          description: 正常
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: 列出宠物
+      parameters:
+        - name: limit
+          in: query
+          description: 返回数量上限
+          schema:
+            type: integer
+            default: 10
+            example: 2
+        - name: status
+          in: query
+          description: 按状态过滤
+          schema:
+            type: string
+            enum: [available, pending, sold]
+      responses:
+        "200":
+          description: 宠物列表
+    post:
+      operationId: createPet
+      tags: [pets]
+      summary: 创建宠物
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NewPet"
+      responses:
+        "201":
+          description: 已创建
+        "400":
+          description: 参数错误
+  /pets/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: 宠物 ID
+        schema:
+          type: string
+    get:
+      operationId: getPet
+      tags: [pets]
+      summary: 查询单个宠物
+      responses:
+        "200":
+          description: 宠物详情
+        "404":
+          description: 不存在
+    delete:
+      operationId: deletePet
+      tags: [pets]
+      summary: 删除宠物
+      x-work-risk: dangerous
+      responses:
+        "204":
+          description: 已删除
+        "404":
+          description: 不存在
+components:
+  schemas:
+    NewPet:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          description: 宠物名
+        tag:
+          type: string
+          description: 标签
+    Pet:
+      allOf:
+        - $ref: "#/components/schemas/NewPet"
+        - type: object
+          properties:
+            id:
+              type: string
