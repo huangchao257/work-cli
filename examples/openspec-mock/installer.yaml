@@ -7,9 +7,6 @@ install:
 verify:
   command: [sh, -c, "test -f \"$HOME/.work/openspec-mock-installed\""]
 uninstall:
-  run: rm -f "$HOME/.work/openspec-mock-installed"
-  platforms:
-    # Windows runner 的 cmd.exe 不展开 $HOME；原样传给 rm 后删除字面路径落空。
-    # 显式经 sh -c 执行，$HOME 由 sh 展开（runner 自带 Git 的 sh.exe）
-    windows:
-      run: sh -c "rm -f \"$HOME/.work/openspec-mock-installed\""
+  # 卸载走脚本（与 install 对称）：cmd.exe 直接执行 rm 时 $HOME 不展开，
+  # 引号经 YAML/cmd/sh 三层转义后也会破碎；脚本内展开最稳
+  run: sh scripts/uninstall.sh
