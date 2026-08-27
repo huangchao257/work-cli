@@ -3,6 +3,7 @@ package scaffold
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -104,13 +105,15 @@ func TestRunHooks(t *testing.T) {
 		}
 	}
 
-	// telemetry.sh 有可执行位。
-	info, err := os.Stat(script)
-	if err != nil {
-		t.Fatalf("stat telemetry.sh 失败: %v", err)
-	}
-	if info.Mode()&0o111 == 0 {
-		t.Errorf("telemetry.sh 缺少可执行位: %v", info.Mode())
+	// telemetry.sh 有可执行位（Windows 无 Unix 权限位语义，跳过）。
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(script)
+		if err != nil {
+			t.Fatalf("stat telemetry.sh 失败: %v", err)
+		}
+		if info.Mode()&0o111 == 0 {
+			t.Errorf("telemetry.sh 缺少可执行位: %v", info.Mode())
+		}
 	}
 
 	// manifest 含正确 name/version/type。

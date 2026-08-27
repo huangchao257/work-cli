@@ -4,7 +4,17 @@ version: 1.0.0
 description: OpenSpec CLI 测试替身
 install:
   run: sh scripts/install.sh
+  platforms:
+    windows:
+      # Windows runner 无可靠 sh/rm 且 cmd.exe 不展开 $HOME；
+      # 用 cmd 内建命令 + %HOME%（e2e 测试经 t.Setenv 设置，cmd 透传环境变量）。
+      # mkdir 已存在时会报错，2>nul 吞掉；type nul > 创建空 marker
+      run: mkdir "%HOME%\.work" 2>nul & type nul > "%HOME%\.work\openspec-mock-installed"
 verify:
+  # Windows 上 sh 可能不可用；verify 失败仅产生 warning，不影响安装结果
   command: [sh, -c, "test -f \"$HOME/.work/openspec-mock-installed\""]
 uninstall:
   run: rm -f "$HOME/.work/openspec-mock-installed"
+  platforms:
+    windows:
+      run: del /f /q "%HOME%\.work\openspec-mock-installed"

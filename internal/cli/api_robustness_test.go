@@ -25,7 +25,9 @@ func TestAPICloneDataRejectsNonJSON(t *testing.T) {
 
 func TestAPICloneDataRejectsParentTraversal(t *testing.T) {
 	cmd, buf := newTestAPICmd(t)
-	cmd.SetArgs([]string{"api", "call", "demo", "createPet", "--data", "@/../etc/hostname", "--yes", "--dry-run"})
+	// 用平台分隔符构造 .. 上跳路径（"/../x" 在 Windows 上 Clean 后不带 .. 前缀）
+	traversal := "@." + string(filepath.Separator) + ".." + string(filepath.Separator) + "secret.json"
+	cmd.SetArgs([]string{"api", "call", "demo", "createPet", "--data", traversal, "--yes", "--dry-run"})
 	err := cmd.Execute()
 	if err == nil {
 		t.Fatal("--data @../ traversal should fail")
@@ -74,12 +76,13 @@ func TestAPICloneParamsRejectsArrayValue(t *testing.T) {
 // --- R6: 参数格式错误统一 usage 退出码 2（此前 fmt.Errorf 导致 exit 1，与文档矩阵不一致） ---
 
 func TestAPICloneParamFormatErrorsExit2(t *testing.T) {
+	// 用平台分隔符构造 .. 上跳路径（"/../x" 在 Windows 上 Clean 后不带 .. 前缀）
 	cases := [][]string{
 		{"api", "call", "demo", "createPet", "--data", `{bad}`, "--dry-run"},
 		{"api", "call", "demo", "listPets", "--params", `{"tags":["a"]}`, "--dry-run"},
 		{"api", "call", "demo", "listPets", "--set", "noequals", "--dry-run"},
 		{"api", "call", "demo", "listPets", "--header", "noequals", "--dry-run"},
-		{"api", "call", "demo", "createPet", "--data", "@/../x", "--dry-run"},
+		{"api", "call", "demo", "createPet", "--data", "@." + string(filepath.Separator) + ".." + string(filepath.Separator) + "x", "--dry-run"},
 	}
 	for _, args := range cases {
 		cmd, buf := newTestAPICmd(t)

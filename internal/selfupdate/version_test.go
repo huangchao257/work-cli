@@ -66,4 +66,3 @@ func TestNormalizeTag(t *testing.T) {
 		}
 	}
 }
-
