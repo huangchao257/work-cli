@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -72,9 +73,9 @@ var pluginListCmd = &cobra.Command{
 }
 
 var pluginRunCmd = &cobra.Command{
-	Use:                "run <插件名称> -- <参数>",
+	Use:                "run <插件名称> [--] [参数...]",
 	Short:              "调用指定插件",
-	Long:               "通过 plugin.yaml 中声明的 command 启动插件进程，传递 -- 之后的参数。",
+	Long:               "通过 plugin.yaml 中声明的 command 启动插件进程，传递 -- 之后（或插件名之后）的参数。",
 	DisableFlagParsing: true,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// DisableFlagParsing=true 后所有参数都在 args 中，手动解析
@@ -83,7 +84,8 @@ var pluginRunCmd = &cobra.Command{
 		}
 		name := args[0]
 
-		// 跳过 -- 分隔符，收集插件参数
+		// 收集插件参数：-- 之后的全部透传；未写 -- 时插件名之后的参数也透传
+		// （与隐藏子命令行为一致，避免静默丢弃）。
 		var pluginArgs []string
 		sepFound := false
 		for _, a := range args[1:] {
@@ -91,9 +93,7 @@ var pluginRunCmd = &cobra.Command{
 				sepFound = true
 				continue
 			}
-			if sepFound {
-				pluginArgs = append(pluginArgs, a)
-			}
+			pluginArgs = append(pluginArgs, a)
 		}
 
 		m, err := plugin.Find(name)
@@ -108,7 +108,15 @@ var pluginRunCmd = &cobra.Command{
 		execCmd.Stdin = os.Stdin
 		execCmd.Stdout = cmd.OutOrStdout()
 		execCmd.Stderr = cmd.ErrOrStderr()
-		return execCmd.Run()
+		if err := execCmd.Run(); err != nil {
+			// 透传插件进程的真实退出码（ExitError 携带原始 code）
+			var ee *exec.ExitError
+			if errors.As(err, &ee) {
+				return exitErr(ee.ExitCode(), err)
+			}
+			return err
+		}
+		return nil
 	},
 }
 

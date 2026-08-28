@@ -205,7 +205,10 @@ type compiledRule struct {
 // match 应用 match 与 path_regex，任一命中即违规。
 func (cr compiledRule) match(ptext string, paths []string) (bool, string) {
 	if cr.matchRe != nil && ptext != "" {
-		if m := cr.matchRe.FindString(ptext); m != "" {
+		// 用 MatchString 而非 FindString!=""：可匹配空串的正则（如 x*）
+		// FindString 返回 "" 会被误判为未命中，审计漏报。
+		if cr.matchRe.MatchString(ptext) {
+			m := cr.matchRe.FindString(ptext)
 			return true, fmt.Sprintf("match 命中: %s", m)
 		}
 	}

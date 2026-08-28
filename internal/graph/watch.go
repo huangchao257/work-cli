@@ -32,7 +32,7 @@ func Watch(ctx context.Context, opts WatchOptions) error {
 	}
 
 	// 确保 codegraph 索引已初始化
-	if err := ensureCodegraph(root, false, true); err != nil {
+	if err := ensureCodegraph(ctx, root, false, true); err != nil {
 		return err
 	}
 
@@ -57,6 +57,7 @@ func Watch(ctx context.Context, opts WatchOptions) error {
 	// 防抖：合并短时间内的连续变更
 	var mu sync.Mutex
 	var timer *time.Timer
+	var syncPending bool // 同步执行中标记：跳过重叠的防抖回调
 
 	triggerSync := func() {
 		codegraphSync(root)
@@ -87,6 +88,11 @@ func Watch(ctx context.Context, opts WatchOptions) error {
 			if !isSourceFile(event.Name) {
 				continue
 			}
+			// 排除自身产物：generate-agents.sh 无条件 mv 重写各目录 AGENTS.md，
+			// 若不排除，重写事件会再次触发防抖 → 无限同步循环（每 2-4s 一轮空转）。
+			if isGeneratedArtifact(event.Name) {
+				continue
+			}
 			if event.Op&(fsnotify.Write|fsnotify.Create|fsnotify.Remove|fsnotify.Rename) == 0 {
 				continue
 			}
@@ -97,9 +103,23 @@ func Watch(ctx context.Context, opts WatchOptions) error {
 			}
 			fmt.Printf("[%s] 检测到变更: %s\n", time.Now().Format("15:04:05"),
 				shortPath(root, event.Name))
+			// 防抖回调只在取锁/设置 timer 时持锁，同步本身放锁外执行：
+			// triggerSync 同步跑 codegraph sync + generate-agents.sh（大仓库
+			// 数十秒），持锁会把事件循环阻塞在 mu.Lock()，无缓冲的 fsnotify
+			// Events 通道随之停摆，内核 inotify 队列溢出后静默丢事件。
 			timer = time.AfterFunc(opts.Debounce, func() {
 				mu.Lock()
+				syncing := syncPending
+				if !syncing {
+					syncPending = true
+				}
+				mu.Unlock()
+				if syncing {
+					return // 上一次同步未完成，跳过本轮（内容将在其后被再次触发）
+				}
 				triggerSync()
+				mu.Lock()
+				syncPending = false
 				mu.Unlock()
 			})
 			mu.Unlock()
@@ -134,6 +154,12 @@ func addDirs(w *fsnotify.Watcher, root string) error {
 		}
 		return w.Add(path)
 	})
+}
+
+// isGeneratedArtifact 判断文件是否 watch 自身的生成产物（AGENTS.md），
+// 其重写事件不得再触发同步——否则形成无限自触发循环。
+func isGeneratedArtifact(path string) bool {
+	return strings.EqualFold(filepath.Base(path), "AGENTS.md")
 }
 
 // isSourceFile 检查文件是否为需要监控的源代码文件。

@@ -8,9 +8,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 
 	"github.com/huangchao257/work-cli/internal/usage"
 )
+
+// scaffoldNamePattern 与 source 的资源名同款字符集。
+var scaffoldNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
+
+func validName(name string) bool {
+	return scaffoldNamePattern.MatchString(name)
+}
 
 // Type 表示脚手架类型。
 type Type string
@@ -63,6 +71,11 @@ type fileSpec struct {
 func Run(opts Options) ([]string, error) {
 	if opts.Name == "" {
 		return nil, usage.New("name 不能为空")
+	}
+	// name 会拼进文件路径，只允许资源名同款字符集（小写字母/数字/连字符），
+	// 拒绝路径分隔符与 ..（防止越出目标目录写文件）。
+	if !validName(opts.Name) {
+		return nil, usage.Newf("name 只能包含小写字母、数字和连字符，收到 %q", opts.Name)
 	}
 	dir := opts.Dir
 	if dir == "" {

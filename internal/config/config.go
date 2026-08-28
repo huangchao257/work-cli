@@ -326,7 +326,10 @@ func renderValue(v *yaml.Node) string {
 }
 
 // buildValueNode 按类型推断构造值节点。
-// 仅 [a,b] 流式序列格式转换为 sequence node；其他值按 bool/int/str 推断。
+// 支持三种列表写法：[a,b] 流式序列、JSON 数组、逗号分隔（CLI 帮助示例承诺的
+// `work config set telemetry.events shell,mcp,file_read`——此前未实现，
+// 会把逗号串当字符串写入，破坏下游 hooks 对 events 的列表解析）。
+// 其他值按 bool/int/str 推断。
 func buildValueNode(raw string) *yaml.Node {
 	raw = strings.TrimSpace(raw)
 	// 形如 [a,b] 的流式序列：用 yaml 解析为 sequence node。
@@ -336,6 +339,29 @@ func buildValueNode(raw string) *yaml.Node {
 			if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 && doc.Content[0].Kind == yaml.SequenceNode {
 				return doc.Content[0]
 			}
+		}
+	}
+	// JSON 数组字面量
+	if strings.HasPrefix(raw, "[") && strings.HasSuffix(raw, "]") {
+		var doc yaml.Node
+		if err := yaml.Unmarshal([]byte(raw), &doc); err == nil && doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 && doc.Content[0].Kind == yaml.SequenceNode {
+			return doc.Content[0]
+		}
+	}
+	// 逗号分隔列表：非空、含逗号、无空格包裹的整体（"shell,mcp" → sequence）。
+	// 含前后空格或不含逗号的值按标量处理，避免误伤普通字符串。
+	if strings.Contains(raw, ",") && raw != "" && !strings.Contains(raw, " ") {
+		items := strings.Split(raw, ",")
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, it := range items {
+			it = strings.TrimSpace(it)
+			if it == "" {
+				continue
+			}
+			seq.Content = append(seq.Content, scalarNode(it))
+		}
+		if len(seq.Content) > 0 {
+			return seq
 		}
 	}
 	return scalarNode(raw)

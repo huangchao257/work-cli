@@ -338,6 +338,12 @@ func upload(target, archive, checksumPath, name, version, typ string) error {
 	resp, err := client.Do(req)
 	if err != nil {
 		pr.Close()
+		// 服务端提前拒绝（如 4xx 后立刻断开）会让请求管道关闭：先收
+		// uploadErr 里的表单构建错误，区分「本地写文件失败」与「网络/服务端问题」，
+		// 避免真实原因被管道关闭错误掩盖。
+		if gerr := <-uploadErr; gerr != nil {
+			return gerr
+		}
 		return fmt.Errorf("上传失败: %w", err)
 	}
 	defer resp.Body.Close()

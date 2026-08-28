@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -30,6 +31,14 @@ func init() {
 
 // registerPluginCmd 将插件注册为 rootCmd 的隐藏子命令。
 func registerPluginCmd(m plugin.Manifest) {
+	// 不遮蔽内置命令：同名时插件不注册（内置命令优先），
+	// 否则 ~/.work/plugins/ 下放一个 search/version 同名插件即可
+	// 劫持或破坏所有内置子命令。
+	for _, existing := range rootCmd.Commands() {
+		if existing.Name() == m.Name {
+			return
+		}
+	}
 	cmd := &cobra.Command{
 		Use:    m.Name,
 		Short:  m.Description,
@@ -40,7 +49,15 @@ func registerPluginCmd(m plugin.Manifest) {
 			execCmd.Stdin = os.Stdin
 			execCmd.Stdout = os.Stdout
 			execCmd.Stderr = os.Stderr
-			return execCmd.Run()
+			if err := execCmd.Run(); err != nil {
+				// 透传插件进程的真实退出码（ExitError 携带原始 code）
+				var ee *exec.ExitError
+				if errors.As(err, &ee) {
+					return exitErr(ee.ExitCode(), err)
+				}
+				return err
+			}
+			return nil
 		},
 		// 禁用 cobra 的自动 help/usage 标志以透传参数
 		DisableFlagParsing: true,

@@ -89,8 +89,10 @@ func fetchStableRelease(ctx context.Context, client *http.Client, repo string) (
 }
 
 // fetchLatestPrerelease 从 releases 列表 API 获取最新的 pre-release。
+// 无 prerelease 时回退 stable（设计文档 modules/selfupdate.md §4 的承诺；
+// 只发过 stable 的仓库配 channel=beta 不应让自动更新整体不可用）。
 func fetchLatestPrerelease(ctx context.Context, client *http.Client, repo string) (*releaseInfo, error) {
-	resp, err := gitHubAPI(ctx, client, "releases?per_page=20", repo)
+	resp, err := gitHubAPI(ctx, client, "releases?per_page=50", repo)
 	if err != nil {
 		return nil, fmt.Errorf("获取 beta 版本失败: %w", err)
 	}
@@ -114,7 +116,8 @@ func fetchLatestPrerelease(ctx context.Context, client *http.Client, repo string
 			return &r, nil
 		}
 	}
-	return nil, fmt.Errorf("未找到 beta 版本")
+	// 回退 stable：列表 API 可能不含 latest 标记，走 releases/latest 拿权威 stable。
+	return fetchStableRelease(ctx, client, repo)
 }
 
 // archAliases 将常见的 GOARCH 变体映射到标准名称，用于资产匹配。

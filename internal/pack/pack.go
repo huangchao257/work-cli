@@ -145,11 +145,18 @@ func readManifestMeta(dir string, kind pkgmanifest.Kind) (pkgmanifest.Meta, erro
 }
 
 // resolveOutputPath 解析输出路径：空→<dir>/../<defaultName>；已存在目录→其下 <defaultName>；否则视为完整文件路径。
+// 输出目录若与被打包目录相同（如 work pack . 时 dir 为相对路径），归档会包含
+// 自己（上次的产物被这次打包进去，嵌套膨胀）——此时强制上移一级。
 func resolveOutputPath(output, dir, defaultName string) string {
 	if output == "" {
 		return filepath.Join(filepath.Dir(dir), defaultName)
 	}
 	if info, err := os.Stat(output); err == nil && info.IsDir() {
+		outAbs, _ := filepath.Abs(output)
+		dirAbs, _ := filepath.Abs(dir)
+		if outAbs == dirAbs {
+			return filepath.Join(filepath.Dir(dirAbs), defaultName)
+		}
 		return filepath.Join(output, defaultName)
 	}
 	return output

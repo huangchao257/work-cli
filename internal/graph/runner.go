@@ -41,7 +41,7 @@ func Init(ctx context.Context, opts Options) error {
 		fmt.Println("  - 生成各目录 AGENTS.md")
 		return nil
 	}
-	if err := ensureCodegraph(root, true, opts.Quiet); err != nil {
+	if err := ensureCodegraph(ctx, root, true, opts.Quiet); err != nil {
 		return err
 	}
 	gen, err := findScript(root, "generate-agents.sh")
@@ -73,7 +73,7 @@ func Sync(ctx context.Context, opts Options) error {
 		fmt.Printf("（预览）将在 %s 执行 graph sync\n", root)
 		return nil
 	}
-	if err := ensureCodegraph(root, false, opts.Quiet); err != nil {
+	if err := ensureCodegraph(ctx, root, false, opts.Quiet); err != nil {
 		return err
 	}
 	gen, err := findScript(root, "generate-agents.sh")
@@ -99,7 +99,7 @@ func resolveRoot(path string) (string, error) {
 	return abs, nil
 }
 
-func ensureCodegraph(root string, init bool, quiet bool) error {
+func ensureCodegraph(ctx context.Context, root string, init bool, quiet bool) error {
 	if _, err := exec.LookPath("codegraph"); err != nil {
 		return fmt.Errorf("未找到 codegraph，请先执行: work install codegraph-stack")
 	}
@@ -114,7 +114,7 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 		if !quiet {
 			fmt.Println("正在初始化 CodeGraph 索引...")
 		}
-		cmd := exec.Command("codegraph", "init", root)
+		cmd := exec.CommandContext(ctx, "codegraph", "init", root)
 		cmd.Dir = root
 		if quiet {
 			cmd.Stdout = nil
@@ -128,7 +128,7 @@ func ensureCodegraph(root string, init bool, quiet bool) error {
 		}
 		return nil
 	}
-	cmd := exec.Command("codegraph", "sync", root)
+	cmd := exec.CommandContext(ctx, "codegraph", "sync", root)
 	cmd.Dir = root
 	// sync 是幂等的预同步，失败时不应阻断后续流程；记录到 stderr 供排查
 	if err := cmd.Run(); err != nil && !quiet {
@@ -159,7 +159,12 @@ func findScript(projectRoot, name string) (string, error) {
 			candidates = append(candidates, filepath.Join(d, "scripts", name))
 		}
 	}
-	candidates = append(candidates, filepath.Join(projectRoot, ".cursor", "skills", skillID, "scripts", name))
+	// 项目级回退须覆盖三家 IDE 的项目目录：kit 以 project scope 安装时只写
+	// 已检测 IDE 的项目目录（如 Claude-only 机器写 .claude/skills/...），
+	// 只查 .cursor 会让该类机器上脚本永远找不到。
+	for _, dotDir := range []string{".cursor", ".claude", ".qoder"} {
+		candidates = append(candidates, filepath.Join(projectRoot, dotDir, "skills", skillID, "scripts", name))
+	}
 	for _, c := range candidates {
 		if st, err := os.Stat(c); err == nil && !st.IsDir() {
 			return c, nil

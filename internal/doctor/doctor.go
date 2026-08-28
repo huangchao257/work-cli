@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -478,8 +479,16 @@ func checkStaleTempFiles() CheckResult {
 }
 
 // checkFilePermissions 检查 ~/.work/ 目录与 config.yaml 文件权限是否安全。
+// Unix 权限位模型：Windows 上 Mode().Perm() 恒为 0666，检查必然误报
+// （doctor 在 Windows 永远退出码 1），故跳过并标注不适用。
 func checkFilePermissions() CheckResult {
-	cr := CheckResult{Name: "文件权限检查", Severity: SeverityError}
+	cr := CheckResult{Name: "文件权限检查", Severity: SeverityInfo}
+	if runtime.GOOS == "windows" {
+		cr.OK = true
+		cr.Detail = "Windows 不适用 Unix 权限位检查，已跳过"
+		return cr
+	}
+	cr.Severity = SeverityError
 	dir, err := platform.WorkConfigDir()
 	if err != nil {
 		cr.OK = false
