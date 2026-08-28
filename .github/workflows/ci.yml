@@ -55,6 +55,7 @@ jobs:
         with:
           go-version: '1.26.x'
       - run: GOOS=linux GOARCH=amd64 go build -o /dev/null ./cmd/work
+      - run: GOOS=linux GOARCH=arm64 go build -o /dev/null ./cmd/work
       - run: GOOS=darwin GOARCH=amd64 go build -o /dev/null ./cmd/work
       - run: GOOS=darwin GOARCH=arm64 go build -o /dev/null ./cmd/work
       - run: GOOS=windows GOARCH=amd64 go build -o /dev/null ./cmd/work

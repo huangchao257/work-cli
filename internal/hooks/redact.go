@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"strings"
+	"unicode/utf8"
 )
 
 const maxStringLen = 512
@@ -14,16 +15,27 @@ func RedactPayload(raw []byte, fields []string) (map[string]any, error) {
 	var data map[string]any
 	if err := json.Unmarshal(raw, &data); err != nil {
 		// 非JSON：存储截断后的字符串
-		s := string(raw)
-		if len(s) > maxStringLen {
-			s = s[:maxStringLen] + "…[truncated]"
-		}
+		s := truncateUTF8(string(raw), maxStringLen)
 		return map[string]any{"_raw": s}, nil
 	}
 	redactMap(data, fields)
 	// 迭代式截断字符串，代替递归以降低深层嵌套时的分配
 	truncateStringsIter(data, maxStringLen)
 	return data, nil
+}
+
+// truncateUTF8 按 rune 截断到 max 字节以内，不切断多字节 UTF-8 序列
+// （按字节硬切会产生无效序列，入库/上报后变为 U+FFFD 乱码）。
+func truncateUTF8(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	// 回退到完整 rune 边界
+	cut := max
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…[truncated]"
 }
 
 func redactMap(data map[string]any, fields []string) {
@@ -96,7 +108,7 @@ func truncateStringsIter(root map[string]any, max int) {
 		switch t := v.(type) {
 		case string:
 			if len(t) > max {
-				top.m[k] = t[:max] + "…[truncated]"
+				top.m[k] = truncateUTF8(t, max)
 			}
 		case map[string]any:
 			stack = append(stack, frame{m: t})

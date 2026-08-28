@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/huangchao257/work-cli/internal/hooks"
+	"github.com/huangchao257/work-cli/internal/log"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -55,7 +56,12 @@ var hooksReportCmd = &cobra.Command{
 			Stdout:      cmd.OutOrStdout(),
 			TriggerSync: hooks.ShouldAutoSync(cfg),
 		})
-		return err
+		if err != nil {
+			// report 由 hook 脚本调用，非零退出会阻断 IDE 流程——
+			// 任何失败只写 stderr 警告，始终 exit 0（见 docs/design/modules/hooks.md §11）
+			log.Warnf("[work hooks]", "上报事件失败（不影响 IDE）: %v", err)
+		}
+		return nil
 	},
 }
 

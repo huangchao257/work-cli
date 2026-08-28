@@ -35,7 +35,8 @@ func collectResults(results []Result) *BatchResult {
 }
 
 // runParallel 用信号量限制并发（最多 8）并行执行 count 个闭包。
-func runParallel(ctx context.Context, count int, fn func(ctx context.Context, i int) Result) []Result {
+// nameAt 返回第 i 项的资源名（取消时也输出真实名称，而非 index-N）。
+func runParallel(ctx context.Context, count int, nameAt func(i int) string, fn func(ctx context.Context, i int) Result) []Result {
 	results := make([]Result, count)
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 8)
@@ -46,7 +47,7 @@ func runParallel(ctx context.Context, count int, fn func(ctx context.Context, i 
 			select {
 			case sem <- struct{}{}:
 			case <-ctx.Done():
-				results[i] = Result{Success: false, Name: fmt.Sprintf("index-%d", i), Warnings: []string{ctx.Err().Error()}}
+				results[i] = Result{Success: false, Name: nameAt(i), Warnings: []string{ctx.Err().Error()}}
 				return
 			}
 			defer func() { <-sem }()
@@ -62,7 +63,7 @@ func InstallBatch(ctx context.Context, opts Options, names []string) (*BatchResu
 	if len(names) == 0 {
 		return nil, fmt.Errorf("至少需要指定一个安装名称")
 	}
-	results := runParallel(ctx, len(names), func(ctx context.Context, i int) Result {
+	results := runParallel(ctx, len(names), func(i int) string { return names[i] }, func(ctx context.Context, i int) Result {
 		ref, err := resolveRef(names[i])
 		if err != nil {
 			return Result{Success: false, Name: names[i], Warnings: []string{err.Error()}}
@@ -95,7 +96,7 @@ func UninstallAll(ctx context.Context, scope, kindFilter string, dryRun bool) (*
 		}
 		return nil, fmt.Errorf("没有已安装的%s资源", desc)
 	}
-	results := runParallel(ctx, len(recs), func(ctx context.Context, i int) Result {
+	results := runParallel(ctx, len(recs), func(i int) string { return recs[i].Name }, func(ctx context.Context, i int) Result {
 		res, err := Uninstall(ctx, recs[i].Name, recs[i].Scope, dryRun)
 		if err != nil {
 			return Result{Success: false, Name: recs[i].Name, Warnings: []string{err.Error()}}
@@ -114,7 +115,7 @@ func UninstallBatch(ctx context.Context, names []string, scope string, dryRun bo
 	if scope == "" {
 		scope = "user"
 	}
-	results := runParallel(ctx, len(names), func(ctx context.Context, i int) Result {
+	results := runParallel(ctx, len(names), func(i int) string { return names[i] }, func(ctx context.Context, i int) Result {
 		res, err := Uninstall(ctx, names[i], scope, dryRun)
 		if err != nil {
 			return Result{Success: false, Name: names[i], Warnings: []string{err.Error()}}

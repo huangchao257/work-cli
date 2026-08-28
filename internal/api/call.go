@@ -135,8 +135,17 @@ func buildRequest(baseURL string, op *openapi.CatalogOperation, params map[strin
 		}
 		markPlaced(p, key)
 		value := params[key]
-		if value == "." || value == ".." || strings.Contains(value, "/../") || strings.HasPrefix(value, "../") || strings.HasSuffix(value, "/..") {
-			return nil, usage.Newf("path 参数 %s 的值 %q 含路径穿越段，已拒绝", p.Name, value)
+		// 先解一层 URL 编码再检查：%2e%2e%2f / ..%2f 等编码形式绕过裸串匹配。
+		decoded, derr := url.QueryUnescape(value)
+		if derr != nil {
+			decoded = value
+		}
+		for _, probe := range []string{value, decoded} {
+			if probe == "." || probe == ".." || strings.Contains(probe, "/../") ||
+				strings.HasPrefix(probe, "../") || strings.HasSuffix(probe, "/..") ||
+				strings.Contains(probe, "\\") {
+				return nil, usage.Newf("path 参数 %s 的值 %q 含路径穿越段，已拒绝", p.Name, value)
+			}
 		}
 		pathTemplate = strings.ReplaceAll(pathTemplate, "{"+p.Name+"}", url.PathEscape(value))
 	}

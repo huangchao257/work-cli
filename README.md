@@ -140,7 +140,7 @@ telemetry:
 
 ## Hooks 模块
 
-采集 IDE hooks 事件，本地脱敏后写入 `~/.work/telemetry/queue.jsonl`，异步同步至内网 Telemetry。
+采集 IDE hooks 事件，本地脱敏后写入 `~/.work/telemetry/queue.jsonl`，同步至内网 Telemetry（hook 触发时带 3s 超时上限，超时留待下次重试）。
 
 ```bash
 work install company-hooks   # 安装 hooks 套装
@@ -185,6 +185,6 @@ make build-all      # 交叉编译所有平台到 dist/
 
 ## 文档
 
-- 设计文档（按模块）：`docs/design/`（[总览](docs/design/overview.md) + [资源管理](docs/design/modules/resource.md) + [Hooks](docs/design/modules/hooks.md) + [CodeGraph](docs/design/modules/codegraph.md) + [自更新](docs/design/modules/selfupdate.md) + [扩展能力](docs/design/extensions.md)）
+- 设计文档（按模块）：`docs/design/`（[总览](docs/design/overview.md) + [资源管理](docs/design/modules/resource.md) + [Hooks](docs/design/modules/hooks.md) + [CodeGraph](docs/design/modules/codegraph.md) + [API](docs/design/modules/api.md) + [自更新](docs/design/modules/selfupdate.md) + [扩展能力](docs/design/extensions.md)）
 - 设计规格：`docs/superpowers/specs/`
 - 实现计划：`docs/superpowers/plans/`

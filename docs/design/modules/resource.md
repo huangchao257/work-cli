@@ -36,6 +36,10 @@ resources:
       env:
         - API_KEY: ${MY_API_KEY}   # 支持 ${VAR} 占位
 targets: [cursor]            # 可选；省略则三家都装
+post_install:                # 可选；安装成功后执行
+  when_scope: project        # project | user | any（默认 project）
+  action: graph_init         # graph_init | command
+  command: ""                # action 为 command（或空）时执行的 shell 命令
 ```
 
 | 字段 | 必填 | 说明 |
@@ -48,6 +52,7 @@ targets: [cursor]            # 可选；省略则三家都装
 | `resources.rules` | 否 | Rule 资源列表（`id` + `source` + `apply` + 可选 `globs`） |
 | `resources.mcp` | 否 | MCP 服务配置列表（`id` + `source` + 可选 `env` 映射） |
 | `targets` | 否 | 限制目标 IDE |
+| `post_install` | 否 | 安装成功后的钩子（`when_scope` + `action: graph_init\|command`）；`graph_init` 触发 `graph.RunPostInstall`（codegraph-kit 使用） |
 
 `internal/bundle/validate.go::CheckRequiredEnv` 在安装前校验 `env.required`，缺失则报错并由 `platform.EnvSetHint` 给出按 OS 的设置示例。
 
