@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/huangchao257/work-cli/internal/api"
+	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/huangchao257/work-cli/internal/usage"
 )
@@ -67,11 +68,16 @@ func init() {
 // mergeCallParams 合并 --params JSON 与 --set 键值对，显式 --set 优先。
 // 值只接受标量：数组/对象/null 无法经 map[string]string 正确序列化，
 // 静默 fmt.Sprint 会产生 "[a b]" 之类的错误数据，直接报参数错误（usage，退出码 2）。
+// 数字用 json.Number 解码保留原始字面量——经 any 解码成 float64 后
+// fmt.Sprint 会把大整数变成科学计数法（1234567890123456789 → 1.2345678901234568e+18），
+// ID 类参数被静默损坏。
 func mergeCallParams(params []string, sets []string) (map[string]string, error) {
 	merged := map[string]string{}
 	for _, raw := range params {
+		dec := json.NewDecoder(strings.NewReader(raw))
+		dec.UseNumber()
 		var decoded map[string]any
-		if err := jsonUnmarshalString(raw, &decoded); err != nil {
+		if err := dec.Decode(&decoded); err != nil {
 			return nil, usage.Newf("--params 不是合法 JSON 对象: %v", err)
 		}
 		keys := make([]string, 0, len(decoded))
@@ -84,6 +90,10 @@ func mergeCallParams(params []string, sets []string) (map[string]string, error) 
 			switch value.(type) {
 			case []any, map[string]any, nil:
 				return nil, usage.Newf("--params 的 %q 值必须是标量（字符串/数字/布尔）；数组/对象参数请使用 --set 多次传键", key)
+			}
+			if num, ok := value.(json.Number); ok {
+				merged[key] = num.String()
+				continue
 			}
 			merged[key] = fmt.Sprint(value)
 		}
@@ -110,7 +120,7 @@ func readCallData(spec string) (string, error) {
 	case spec == "-":
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {
-			return "", fmt.Errorf("读取 stdin 失败: %w", err)
+			return "", engine.NewEnvError(fmt.Sprintf("读取 stdin 失败: %v", err))
 		}
 		data = string(raw)
 	case strings.HasPrefix(spec, "@"):
@@ -126,7 +136,8 @@ func readCallData(spec string) (string, error) {
 		}
 		raw, err := os.ReadFile(path)
 		if err != nil {
-			return "", fmt.Errorf("读取请求体文件失败: %w", err)
+			// IO 失败（文件不可读/被占用）是环境问题，非参数问题 → 退出码 3
+			return "", engine.NewEnvError(fmt.Sprintf("读取请求体文件失败: %v", err))
 		}
 		data = string(raw)
 	default:
@@ -218,13 +229,14 @@ func resetCallFlagState() {
 }
 
 // confirmTTY 构造交互式确认函数；非 TTY 返回 nil（fail-closed 由 Call 层兜底）。
+// 确认提示写 stderr：--json 模式下 stdout 的 JSON 契约不能被交互文本污染。
 func confirmTTY(cmd *cobra.Command) func(summary api.ConfirmSummary) (bool, error) {
 	return func(summary api.ConfirmSummary) (bool, error) {
 		stat, err := os.Stdin.Stat()
 		if err != nil || stat.Mode()&os.ModeCharDevice == 0 {
 			return false, nil
 		}
-		w := cmd.OutOrStdout()
+		w := cmd.ErrOrStderr()
 		fmt.Fprintf(w, "即将执行 %s %s（%s，风险 %s）\n", summary.Method, summary.Path, summary.Operation, summary.Risk)
 		if summary.Body != "" {
 			fmt.Fprintf(w, "请求体: %s\n", summary.Body)

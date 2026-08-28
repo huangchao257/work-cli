@@ -169,7 +169,8 @@ func runAPIShortcut(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, sc 
 	}
 
 	// 统一风险门禁（handler 型 shortcut 无法预览请求，同样 fail-closed）
-	if api.Confirmable(risk) && !apiCallYes {
+	// 注意用局部 yes（resetCallFlagState 已清零包级 apiCallYes）
+	if api.Confirmable(risk) && !yes {
 		confirmed := false
 		if opts.Confirm != nil {
 			confirmed, err = opts.Confirm(api.ConfirmSummary{

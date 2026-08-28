@@ -42,16 +42,26 @@ func ParseRiskLevel(raw string) (RiskLevel, error) {
 	}
 }
 
-// AssessRisk 计算 operation 的有效风险：目录元数据缺失时按 method 推断。
+// AssessRisk 计算 operation 的有效风险。
+// 与导入期 normalizeRisk（openapi/catalog.go）保持同语义：
+// - 空 risk → 按 method 推断（GET/HEAD/OPTIONS→read，写方法→write，其余→dangerous）；
+// - 非法值 → 最保守的 dangerous（fail-closed）。
+// 手编/损坏的 catalog.json 可能出现这两种情况，不能默认按 read 放行
+// （否则 DELETE 缺 risk 字段会无需确认直接发出）。
 func AssessRisk(op *openapi.CatalogOperation) RiskLevel {
 	if op == nil {
 		return RiskDangerous
 	}
-	level, err := ParseRiskLevel(op.Risk)
-	if err == nil {
+	trimmed := strings.ToLower(strings.TrimSpace(op.Risk))
+	switch trimmed {
+	case "read", "write", "dangerous":
+		level, _ := ParseRiskLevel(trimmed)
 		return level
+	case "":
+		return inferMethodRisk(op.Method)
+	default:
+		return RiskDangerous
 	}
-	return inferMethodRisk(op.Method)
 }
 
 func inferMethodRisk(method string) RiskLevel {

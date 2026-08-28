@@ -60,6 +60,12 @@ var reservedFlags = map[string]bool{
 	"params": true, "set": true, "data": true, "header": true, "as": true,
 }
 
+// IsReservedCLIWord 判断段是否动态命令路径的保留字（供二次消费侧 sanitize 复用）。
+func IsReservedCLIWord(segment string) bool { return reservedCLIWords[segment] }
+
+// IsReservedFlag 判断 flag 名是否保留字（供二次消费侧 sanitize 复用）。
+func IsReservedFlag(flag string) bool { return reservedFlags[flag] }
+
 // Index 将 OpenAPI 文档转换为稳定目录。不能安全生成动态命令的 operation 仍保留供 schema/call 使用。
 func (d *Document) Index() (*Catalog, error) {
 	if d == nil {

@@ -47,6 +47,18 @@ if (-not $Bin) { throw "压缩包中未找到 work.exe" }
 
 $Dest = Join-Path $InstallDir "work.exe"
 Copy-Item -Path $Bin.FullName -Destination $Dest -Force
+
+# 安装内置套装（examples）到 ~/.work/examples，与 install.sh 行为对齐；
+# 缺失时 catalog.Resolve 找不到内置目录，work install dev-kit 等全部不可用。
+$ExamplesSrc = Get-ChildItem -Path $TempDir -Recurse -Directory -Filter "examples" | Select-Object -First 1
+if ($ExamplesSrc -and (Test-Path (Join-Path $ExamplesSrc.FullName "codegraph-stack"))) {
+    $PkgDir = Join-Path $env:USERPROFILE ".work\examples"
+    New-Item -ItemType Directory -Force -Path (Split-Path $PkgDir -Parent) | Out-Null
+    if (Test-Path $PkgDir) { Remove-Item -Recurse -Force $PkgDir }
+    Copy-Item -Path $ExamplesSrc.FullName -Destination $PkgDir -Recurse -Force
+    Write-Step "内置套装已安装到 $PkgDir"
+}
+
 Remove-Item -Recurse -Force $TempDir
 
 Write-Step "已安装到 $Dest"

@@ -120,13 +120,19 @@ func runHooksAudit(cmd *cobra.Command, args []string) error {
 	summary := buildSummary(violations)
 	warnings := readWarnings
 
-	// 5. 输出
+	// 5. 输出（human 与 --json 的违规退出码契约一致：发现违规 → 退出 1）
 	if asJSON {
-		return output.PrintJSON(w, auditJSONResult{
+		if err := output.PrintJSON(w, auditJSONResult{
 			Violations: violations,
 			Summary:    summary,
 			Warnings:   warnings,
-		})
+		}); err != nil {
+			return err
+		}
+		if len(violations) > 0 {
+			return exitErr(1, errAuditViolations)
+		}
+		return nil
 	}
 
 	// human 输出

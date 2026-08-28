@@ -285,12 +285,23 @@ func sanitizeCatalog(catalog *openapi.Catalog) {
 			continue
 		}
 		for _, segment := range op.CLIPath {
-			if segment == "" || strings.ContainsAny(segment, " \t/+") {
+			if segment == "" || strings.ContainsAny(segment, " \t/+") || openapi.IsReservedCLIWord(segment) {
 				op.Dynamic = false
-				message := fmt.Sprintf("operation %s 的 cli_path %q 含非法段，已降级到 schema/call", displayPath(op), commandPathString(op.CLIPath))
+				message := fmt.Sprintf("operation %s 的 cli_path %q 含非法段或保留字，已降级到 schema/call", displayPath(op), commandPathString(op.CLIPath))
 				op.Warnings = append(op.Warnings, message)
 				catalog.Warnings = append(catalog.Warnings, message)
 				break
+			}
+		}
+		// flag 字段同样不可信：保留字/非法名会在 cobra 装配期 panic
+		//（重复注册），吞掉整棵系统的动态命令。逐个降级。
+		for j := range op.Parameters {
+			p := &op.Parameters[j]
+			if p.FlagEnabled && (p.Flag == "" || openapi.IsReservedFlag(p.Flag) || strings.ContainsAny(p.Flag, " \t=")) {
+				p.FlagEnabled = false
+				message := fmt.Sprintf("operation %s 的参数 flag %q 非法或为保留字，已降级到 --set", displayPath(op), p.Flag)
+				op.Warnings = append(op.Warnings, message)
+				catalog.Warnings = append(catalog.Warnings, message)
 			}
 		}
 	}

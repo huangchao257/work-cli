@@ -67,6 +67,25 @@ install_binary() {
   log "下载 $url"
   need_cmd tar
   curl -fsSL "$url" -o "$tmp/work.tar.gz"
+
+  # 校验和验证：下载同 Release 的 checksums.txt，校验失败拒绝安装。
+  # 归档经公网分发，无校验则 MITM/CDN 污染会直接落盘执行。
+  local checksum_url="${url%/*}/checksums.txt"
+  if curl -fsSL "$checksum_url" -o "$tmp/checksums.txt" 2>/dev/null; then
+    local want have
+    want="$(grep -F "$(basename "$url")" "$tmp/checksums.txt" | awk '{print $1}')"
+    if [ -n "$want" ]; then
+      need_cmd sha256sum
+      have="$(sha256sum "$tmp/work.tar.gz" | awk '{print $1}')"
+      [ "$have" = "$want" ] || err "校验和不匹配（期望 $want，实际 $have），拒绝安装"
+      log "校验和验证通过"
+    else
+      log "警告: checksums.txt 中未找到 $(basename "$url")，跳过校验"
+    fi
+  else
+    log "警告: 无法下载 checksums.txt，跳过校验"
+  fi
+
   tar -xzf "$tmp/work.tar.gz" -C "$tmp"
   local bin
   bin="$(find "$tmp" -type f -name work | head -n 1)"
@@ -81,9 +100,18 @@ install_binary() {
   if [ -n "$examples_src" ] && [ -d "$examples_src/codegraph-stack" ]; then
     local pkg_dir="${HOME}/.work/examples"
     mkdir -p "$(dirname "$pkg_dir")"
-    rm -rf "$pkg_dir"
-    cp -a "$examples_src" "$pkg_dir"
-    log "内置套装已安装到 $pkg_dir"
+    # 原子升级：先完整复制到临时目录，成功后再切换。
+    # 直接 rm -rf 后 cp 失败会留下空目录，内置套装全部不可用且无法自愈。
+    local staging="${pkg_dir}.staging.$$"
+    rm -rf "$staging"
+    if cp -a "$examples_src" "$staging"; then
+      rm -rf "$pkg_dir"
+      mv "$staging" "$pkg_dir"
+      log "内置套装已安装到 $pkg_dir"
+    else
+      rm -rf "$staging"
+      log "警告: 复制内置套装失败，保留原有 $pkg_dir"
+    fi
   fi
 }
 

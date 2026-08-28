@@ -53,10 +53,12 @@ irm https://github.com/huangchao257/work-cli/releases/latest/download/install.ps
 若公司使用内网制品库，IT 可设置环境变量后分发统一脚本：
 
 ```bash
-export WORK_INSTALL_BASE="https://artifacts.internal.example.com/work-cli/releases"
+export WORK_INSTALL_REPO="your-mirror/work-cli"   # GitHub 镜像仓库
 export WORK_VERSION="v0.1.0"
-curl -fsSL https://artifacts.internal.example.com/work-cli/install.sh | bash
+curl -fsSL https://your-mirror.example.com/work-cli/install.sh | bash
 ```
+
+> 注：`WORK_INSTALL_REPO` 指定下载源仓库；`WORK_INSTALL_DIR` 可自定义安装目录。
 
 ---
 

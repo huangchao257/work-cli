@@ -122,19 +122,9 @@ func findRecord(name, scope string) (*state.BundleRecord, *state.Store, error) {
 		return rec, store, nil
 	}
 	if scope != "user" {
-		statePath, err = platform.WorkStatePath("user")
-		if err != nil {
-			return nil, nil, fmt.Errorf("定位用户状态文件路径失败（原作用域 %s 错误: %v）: %w", scope, firstErr, err)
-		}
-		store, err = state.Open(statePath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("打开用户状态文件失败（原作用域 %s 错误: %v）: %w", scope, firstErr, err)
-		}
-		rec, err = store.Find(name, "user")
-		if err == nil {
-			return rec, store, nil
-		}
-		return nil, nil, fmt.Errorf("作用域 %s 查找失败: %v；用户作用域查找失败: %w", scope, firstErr, err)
+		// 显式指定 project 作用域时禁止回退到 user：静默回退会删掉用户全局
+		// 安装的同名资源。仅在 project 记录不存在时报错并提示确认作用域。
+		return nil, nil, fmt.Errorf("作用域 %s 下未找到 %s（如需卸载用户级安装，请去掉 --scope project 重试）: %w", scope, name, firstErr)
 	}
 	return nil, nil, firstErr
 }

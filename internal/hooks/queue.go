@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/huangchao257/work-cli/internal/platform"
 )
 
 type EventRecord struct {
@@ -56,25 +58,61 @@ func StatePath() (string, error) {
 	return filepath.Join(dir, "state.json"), nil
 }
 
-func AppendQueue(rec EventRecord) error {
+// queueLockPath 返回队列文件的稳定旁路锁路径。
+// 锁加在 .lock 文件而非 queue.jsonl 本身：队列文件在 rewriteQueue 中被
+// rename 替换——Windows 上 rename 覆盖正被本进程打开的文件必然失败，
+// 且 Unix flock 绑定 inode，rename 换 inode 后锁互斥即失效。
+// Append（追加）与 rewrite（读-改-写）都须持该锁，否则并发 hook 触发时
+// rewrite 的 rename 会用不含并发追加内容的快照覆盖队列，无声丢失事件。
+func queueLockPath() (string, error) {
 	path, err := QueuePath()
+	if err != nil {
+		return "", err
+	}
+	return path + ".lock", nil
+}
+
+// withQueueLock 持队列独占锁执行 fn。
+func withQueueLock(fn func() error) error {
+	lockPath, err := queueLockPath()
 	if err != nil {
 		return err
 	}
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return fmt.Errorf("创建队列目录失败: %w", err)
+	}
+	lf, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return fmt.Errorf("打开队列锁文件失败: %w", err)
+	}
+	defer lf.Close()
+	if err := platform.FlockLock(lf, lockPath, platform.FlockEX); err != nil {
+		return fmt.Errorf("获取队列锁失败: %w", err)
+	}
+	return fn()
+}
+
+func AppendQueue(rec EventRecord) error {
 	entry := QueueEntry{Event: rec}
 	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("编码队列条目失败: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("打开队列文件失败: %w", err)
-	}
-	defer f.Close()
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		return fmt.Errorf("写入队列文件失败: %w", err)
-	}
-	return updatePendingCount()
+	return withQueueLock(func() error {
+		path, err := QueuePath()
+		if err != nil {
+			return err
+		}
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("打开队列文件失败: %w", err)
+		}
+		defer f.Close()
+		if _, err := f.Write(append(data, '\n')); err != nil {
+			return fmt.Errorf("写入队列文件失败: %w", err)
+		}
+		return updatePendingCount()
+	})
 }
 
 func ReadPending() ([]QueueEntry, error) {
@@ -91,6 +129,9 @@ func ReadPending() ([]QueueEntry, error) {
 	}
 	var out []QueueEntry
 	sc := bufio.NewScanner(bytes.NewReader(data))
+	// 与 rewriteQueue 相同的长行缓冲（16 MiB）：超长事件 payload（未截断的
+	// 数组内容）会超过默认 64K 上限，导致 sync/report/GetStatus 永久瘫痪。
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
 	for sc.Scan() {
 		line := sc.Bytes()
 		if len(line) == 0 {
@@ -138,89 +179,92 @@ func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
 
 // rewriteQueue 逐行处理队列文件，通过临时文件+rename实现原子写入，
 // 避免将整个文件读入内存。只有被 mutate 修改的行才会重新marshal。
+// 全程持队列旁路锁（与 AppendQueue 互斥），且 rename 前已关闭原文件
+// 读句柄——Windows 上 rename 覆盖正被本进程打开的文件必然失败。
 func rewriteQueue(mutate func(*QueueEntry) bool) error {
 	path, err := QueuePath()
 	if err != nil {
 		return err
 	}
 
-	// 打开原文件用于读取
-	in, err := os.Open(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	return withQueueLock(func() error {
+		// 先整体读入并关闭读句柄，再写临时文件与 rename。
+		data, err := os.ReadFile(path)
+		if err != nil {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fmt.Errorf("读取队列文件失败: %w", err)
 		}
-		return fmt.Errorf("打开队列文件失败: %w", err)
-	}
-	defer in.Close()
 
-	// 在同目录创建临时文件用于写入
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".queue-*.jsonl")
-	if err != nil {
-		return fmt.Errorf("创建临时队列文件失败: %w", err)
-	}
-	tmpPath := tmp.Name()
-	cleanup := true
-	defer func() {
-		_ = tmp.Close()
-		if cleanup {
-			_ = os.Remove(tmpPath)
+		// 在同目录创建临时文件用于写入
+		dir := filepath.Dir(path)
+		tmp, err := os.CreateTemp(dir, ".queue-*.jsonl")
+		if err != nil {
+			return fmt.Errorf("创建临时队列文件失败: %w", err)
 		}
-	}()
+		tmpPath := tmp.Name()
+		cleanup := true
+		defer func() {
+			_ = tmp.Close()
+			if cleanup {
+				_ = os.Remove(tmpPath)
+			}
+		}()
 
-	var modified bool
-	sc := bufio.NewScanner(in)
-	// 增大scanner缓冲区以处理长行
-	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
-	for sc.Scan() {
-		line := sc.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-		var e QueueEntry
-		if err := json.Unmarshal(line, &e); err != nil {
-			// 无法解析的行原样保留
-			if _, werr := tmp.Write(line); werr != nil {
+		var modified bool
+		sc := bufio.NewScanner(bytes.NewReader(data))
+		// 增大scanner缓冲区以处理长行
+		sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+		for sc.Scan() {
+			line := sc.Bytes()
+			if len(line) == 0 {
+				continue
+			}
+			var e QueueEntry
+			if err := json.Unmarshal(line, &e); err != nil {
+				// 无法解析的行原样保留
+				if _, werr := tmp.Write(line); werr != nil {
+					return fmt.Errorf("写入临时队列文件失败: %w", werr)
+				}
+				if _, werr := tmp.Write([]byte{'\n'}); werr != nil {
+					return fmt.Errorf("写入临时队列文件失败: %w", werr)
+				}
+				continue
+			}
+			if mutate(&e) {
+				modified = true
+			}
+			b, err := json.Marshal(e)
+			if err != nil {
+				return fmt.Errorf("编码队列条目失败: %w", err)
+			}
+			if _, werr := tmp.Write(b); werr != nil {
 				return fmt.Errorf("写入临时队列文件失败: %w", werr)
 			}
 			if _, werr := tmp.Write([]byte{'\n'}); werr != nil {
 				return fmt.Errorf("写入临时队列文件失败: %w", werr)
 			}
-			continue
 		}
-		if mutate(&e) {
-			modified = true
+		if err := sc.Err(); err != nil {
+			return fmt.Errorf("扫描队列文件失败: %w", err)
 		}
-		b, err := json.Marshal(e)
-		if err != nil {
-			return fmt.Errorf("编码队列条目失败: %w", err)
+		if err := tmp.Close(); err != nil {
+			return fmt.Errorf("关闭临时队列文件失败: %w", err)
 		}
-		if _, werr := tmp.Write(b); werr != nil {
-			return fmt.Errorf("写入临时队列文件失败: %w", werr)
+		if !modified {
+			cleanup = true
+			return nil
 		}
-		if _, werr := tmp.Write([]byte{'\n'}); werr != nil {
-			return fmt.Errorf("写入临时队列文件失败: %w", werr)
+		if err := os.Rename(tmpPath, path); err != nil {
+			return fmt.Errorf("原子替换队列文件失败: %w", err)
 		}
-	}
-	if err := sc.Err(); err != nil {
-		return fmt.Errorf("扫描队列文件失败: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("关闭临时队列文件失败: %w", err)
-	}
-	if !modified {
-		cleanup = true
+		cleanup = false
+		// 尽力更新同步状态元数据；失败不阻塞（队列数据已正确持久化）。
+		// 下一次 AppendQueue 或 ReadPending 调用会自动修正 PendingCount。
+		_ = updatePendingCount()
 		return nil
-	}
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("原子替换队列文件失败: %w", err)
-	}
-	cleanup = false
-	// 尽力更新同步状态元数据；失败不阻塞（队列数据已正确持久化）。
-	// 下一次 AppendQueue 或 ReadPending 调用会自动修正 PendingCount。
-	_ = updatePendingCount()
-	return nil
+	})
 }
 
 func LoadSyncState() (SyncState, error) {

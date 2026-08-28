@@ -55,13 +55,13 @@ func syncWithContext(ctx context.Context, cfg TelemetryConfig) error {
 		batch := pending[i:end]
 		if err := uploadBatchWithContext(ctx, cfg, batch); err != nil {
 			lastErr = err
+			// 上报失败只对首个批次记录退避：RecordSyncError 每次调用都做一次
+			// 全队列文件重写，队列积压时逐条重写远超调用方的超时预算
+			// （如 report 的 3s 上限），会让 hook 进程被 IDE 杀掉、stdin 透传丢失。
 			backoff := time.Duration(1<<min(batch[0].RetryCount, 6)) * time.Second
-			for _, e := range batch {
-				// 记录失败原因与退避时间，便于后续重试；写入失败只能忽略
-				_ = RecordSyncError(e.Event.EventID, err.Error(), time.Now().UTC().Add(backoff))
-			}
-			st, err := LoadSyncState()
-			if err != nil {
+			_ = RecordSyncError(batch[0].Event.EventID, err.Error(), time.Now().UTC().Add(backoff))
+			st, lerr := LoadSyncState()
+			if lerr != nil {
 				_ = SaveSyncState(SyncState{LastError: err.Error()})
 			} else {
 				st.LastError = err.Error()
@@ -75,6 +75,11 @@ func syncWithContext(ctx context.Context, cfg TelemetryConfig) error {
 		}
 		if err := MarkUploaded(ids); err != nil {
 			return fmt.Errorf("标记已上报事件失败: %w", err)
+		}
+		// 批次之间检查取消：MarkUploaded 的全文件重写不受 ctx 约束，
+		// 取消后继续循环只会做更多无谓的重写
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("同步被取消: %w", err)
 		}
 	}
 

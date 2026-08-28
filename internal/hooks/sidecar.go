@@ -42,34 +42,60 @@ func SidecarPath(name string) (string, error) {
 	return filepath.Join(dir, name+".json"), nil
 }
 
+// sidecarLockPath 返回 sidecar 稳定锁文件路径。
+// 锁必须加在旁路 .lock 文件而非 sidecar 文件本身：sidecar 在 Save 中被
+// rename 替换（Windows 上 rename 覆盖正被本进程打开的文件必然失败），
+// 且 Unix flock 绑定 inode，rename 换 inode 后锁互斥即失效。
+// 锁文件自身从不被 rename/remove。
+func sidecarLockPath(name string) (string, error) {
+	base, err := SidecarPath(name)
+	if err != nil {
+		return "", err
+	}
+	return base + ".lock", nil
+}
+
+// lockSidecar 打开旁路锁文件并加锁，返回待关闭的句柄。
+func lockSidecar(name string, how int) (*os.File, error) {
+	lockPath, err := sidecarLockPath(name)
+	if err != nil {
+		return nil, err
+	}
+	lf, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("打开 sidecar 锁文件失败: %w", err)
+	}
+	if err := platform.FlockLock(lf, lockPath, how); err != nil {
+		_ = lf.Close()
+		return nil, fmt.Errorf("获取 sidecar 文件锁失败: %w", err)
+	}
+	return lf, nil
+}
+
 // LoadSidecar 读取 sidecar 文件，使用共享文件锁防止读脏数据。
 func LoadSidecar(name string) (*Sidecar, error) {
+	lf, err := lockSidecar(name, platform.FlockSH)
+	if err != nil {
+		return nil, err
+	}
+	defer lf.Close()
+
 	path, err := SidecarPath(name)
 	if err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY, 0o600)
+	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("未找到 hooks 安装记录: %s", name)
 		}
-		return nil, fmt.Errorf("打开 sidecar 文件失败: %w", err)
+		return nil, fmt.Errorf("读取 sidecar 文件失败: %w", err)
 	}
-	defer f.Close()
-	if err := platform.FlockLock(f, path, platform.FlockSH); err != nil {
-		return nil, fmt.Errorf("获取 sidecar 共享锁失败: %w", err)
-	}
-	defer func() { _ = platform.FlockUnlock(f) }()
-
-	fi, err := f.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("获取 sidecar 文件信息失败: %w", err)
-	}
-	if fi.Size() == 0 {
+	if len(data) == 0 {
 		return nil, fmt.Errorf("未找到 hooks 安装记录: %s", name)
 	}
 	var sc Sidecar
-	if err := json.NewDecoder(f).Decode(&sc); err != nil {
+	if err := json.Unmarshal(data, &sc); err != nil {
 		return nil, fmt.Errorf("解析 sidecar 文件失败: %w", err)
 	}
 	return &sc, nil
@@ -93,7 +119,16 @@ func SaveSidecar(sc *Sidecar) error {
 		return fmt.Errorf("编码 sidecar 失败: %w", err)
 	}
 
-	// 原子写入：先写临时文件，加锁后 rename，避免 truncate 中途崩溃导致文件为空。
+	// 锁加在旁路 .lock 文件上（见 sidecarLockPath），先取锁再写临时文件，
+	// 保证与 LoadSidecar / RemoveSidecar 串行化。
+	lf, err := lockSidecar(sc.Name, platform.FlockEX)
+	if err != nil {
+		return err
+	}
+	defer lf.Close()
+
+	// 原子写入：写临时文件后 rename。全程不持有 sidecar 文件自身的句柄，
+	// 避免 Windows 上 rename 覆盖被本进程打开的文件失败。
 	tmp, err := os.CreateTemp(filepath.Dir(path), ".sidecar-*.json")
 	if err != nil {
 		return fmt.Errorf("创建临时 sidecar 文件失败: %w", err)
@@ -114,17 +149,6 @@ func SaveSidecar(sc *Sidecar) error {
 		return fmt.Errorf("关闭临时 sidecar 文件失败: %w", err)
 	}
 
-	// 打开目标文件加独占锁，确保 rename 时无并发读取。
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return fmt.Errorf("打开 sidecar 文件失败: %w", err)
-	}
-	defer f.Close()
-	if err := platform.FlockLock(f, path, platform.FlockEX); err != nil {
-		return fmt.Errorf("获取 sidecar 独占锁失败: %w", err)
-	}
-	defer func() { _ = platform.FlockUnlock(f) }()
-
 	if err := os.Rename(tmpPath, path); err != nil {
 		return fmt.Errorf("原子替换 sidecar 文件失败: %w", err)
 	}
@@ -138,18 +162,13 @@ func RemoveSidecar(name string) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_RDWR, 0o600)
+	// 锁加在旁路 .lock 文件上；不预先打开 sidecar 文件本身，
+	// 避免 Windows 上删除被本进程打开的文件失败。
+	lf, err := lockSidecar(name, platform.FlockEX)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("打开 sidecar 文件失败: %w", err)
+		return err
 	}
-	defer f.Close()
-	if err := platform.FlockLock(f, path, platform.FlockEX); err != nil {
-		return fmt.Errorf("获取 sidecar 独占锁失败: %w", err)
-	}
-	defer func() { _ = platform.FlockUnlock(f) }()
+	defer lf.Close()
 
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("删除 sidecar 文件失败: %w", err)
@@ -157,8 +176,23 @@ func RemoveSidecar(name string) error {
 	return nil
 }
 
-func IsWorkManagedCommand(cmd string) bool {
-	return filepath.Base(filepath.Dir(cmd)) == workTelemetryDir ||
-		strings.Contains(cmd, "/"+workTelemetryDir+"/") ||
-		strings.Contains(cmd, `\`+workTelemetryDir+`\`)
+// IsWorkManagedCommand 判断命令是否 work 管理的 hook 条目。
+// kitName 为空时匹配任意套装（向后兼容旧调用）；非空时仅匹配该套装——
+// work 管理的脚本路径形如 .../hooks/work-telemetry/<kitName>/...，
+// merge/unmerge 必须按套装隔离，否则安装第二个套装会删掉第一个的条目。
+func IsWorkManagedCommand(cmd string, kitName string) bool {
+	if kitName == "" {
+		return filepath.Base(filepath.Dir(cmd)) == workTelemetryDir ||
+			strings.Contains(cmd, "/"+workTelemetryDir+"/") ||
+			strings.Contains(cmd, `\`+workTelemetryDir+`\`)
+	}
+	// kit 级匹配：work-telemetry/<kit> 段（正/反斜杠两种分隔符）
+	for _, sep := range []string{"/", `\`} {
+		if strings.Contains(cmd, sep+workTelemetryDir+sep+kitName+sep) {
+			return true
+		}
+	}
+	// 兼容 cmd 恰好以 kit 目录为结尾（无尾部分隔符）的情况
+	return filepath.Base(cmd) != "" && filepath.Base(filepath.Dir(filepath.Dir(cmd))) == workTelemetryDir &&
+		filepath.Base(filepath.Dir(cmd)) == kitName
 }

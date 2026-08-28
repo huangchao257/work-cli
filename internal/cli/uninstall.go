@@ -35,9 +35,17 @@ var uninstallCmd = &cobra.Command{
 				return err
 			}
 			if asJSON {
-				return output.PrintJSON(cmd.OutOrStdout(), br)
+				if err := output.PrintJSON(cmd.OutOrStdout(), br); err != nil {
+					return err
+				}
+			} else if err := output.PrintHumanBatch(cmd.OutOrStdout(), br); err != nil {
+				return err
 			}
-			return output.PrintHumanBatch(cmd.OutOrStdout(), br)
+			// 存在失败项 → 退出码 1（与单个卸载失败的契约一致）
+			if br.Failures > 0 {
+				return exitErr(1, fmt.Errorf("批量卸载 %d 项中有 %d 项失败", br.Total(), br.Failures))
+			}
+			return nil
 		}
 
 		if len(args) == 0 && !uninstallAll {
@@ -63,9 +71,17 @@ var uninstallCmd = &cobra.Command{
 			return err
 		}
 		if asJSON {
-			return output.PrintJSON(cmd.OutOrStdout(), br)
+			if err := output.PrintJSON(cmd.OutOrStdout(), br); err != nil {
+				return err
+			}
+		} else if err := output.PrintHumanBatch(cmd.OutOrStdout(), br); err != nil {
+			return err
 		}
-		return output.PrintHumanBatch(cmd.OutOrStdout(), br)
+		// 存在失败项 → 退出码 1（与单个卸载失败的契约一致）
+		if br.Failures > 0 {
+			return exitErr(1, fmt.Errorf("批量卸载 %d 项中有 %d 项失败", br.Total(), br.Failures))
+		}
+		return nil
 	},
 }
 

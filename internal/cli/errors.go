@@ -29,6 +29,11 @@ func ExitCode(err error) int {
 	if engine.IsEnvError(err) {
 		return 3
 	}
+	// 用法错误（含 cobra 的未知 flag/参数数量错误、未知子命令）→ 2。
+	// 未包成 exitError 的裸 usage 错误在此兜底，避免泄漏为退出码 1。
+	if usage.Is(err) {
+		return 2
+	}
 	return 1
 }
 

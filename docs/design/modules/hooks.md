@@ -6,7 +6,7 @@
 
 | 阶段 | 能力 | 状态 |
 |------|------|------|
-| **阶段一** | **观察型上报** — 采集 IDE 事件，本地落盘 + 异步上报内网 Telemetry | **当前（已实现）** |
+| **阶段一** | **观察型上报** — 采集 IDE 事件，本地落盘 + 同步上报内网 Telemetry（带超时上限，不阻塞 IDE） | **当前（已实现）** |
 | **阶段二** | **执行审计** — 基于上报数据或策略引擎，对 Shell/MCP/文件操作合规审计与告警 | 规划中 |
 | **阶段三** | **触发执行自动化** — hook 满足条件时触发公司自动化（审批、阻断、Webhook、联动 CI） | 规划中 |
 
@@ -31,7 +31,7 @@ AI IDE（hook 触发, stdin JSON）
 │  - 解析/校验 payload          │
 │  - 合并元数据 + 脱敏          │
 │  - 写入本地队列               │
-│  - 触发异步 sync（非阻塞）     │
+│  - 触发同步 sync（≤3s 上限）   │
 └─────────────────────────────┘
         │
    ┌────┴────┐
@@ -140,9 +140,9 @@ Qoder 不支持的抽象事件跳过并 warning。
 
 `work hooks report` 参数：`--ide`（必填）、`--event`（必填，抽象或 IDE 原始事件名）、`--hooks-kit`（可选，默认从已安装状态推断）、`--stdin-file`（调试，从文件读入代替 stdin）。
 
-行为：读 stdin → 合并元数据 → 脱敏 → 追加 `~/.work/telemetry/queue.jsonl` → 若 `telemetry.enabled` 且距上次 sync 超过阈值则后台触发一次 sync（单进程内防抖，不阻塞 hook）→ 透传 stdin 到 stdout → `exit 0`（默认 3s 超时仍 exit 0，仅写本地警告日志）。
+行为：读 stdin → 合并元数据 → 脱敏 → 追加 `~/.work/telemetry/queue.jsonl` → 若 `telemetry.enabled` 且距上次 sync 超过阈值则触发一次 sync（**同步执行、带 3s 超时上限**——事件已落盘，超时后由下次 `work hooks sync` 重试，不阻塞 hook）→ 透传 stdin 到 stdout → `exit 0`（仅写本地警告日志）。同步执行而非 fire-and-forget：hook 进程退出会带走后台 goroutine，异步触发实际必然失效。
 
-`work hooks sync`：读 `uploaded_at` 为空的记录 → 按 `batch_size` 分批 POST `telemetry.url` → 成功归档 / 失败保留并指数退避。
+`work hooks sync`：读 `uploaded_at` 为空的记录 → 按 `batch_size` 分批 POST `telemetry.url` → 成功归档 / 失败保留并**指数退避**（`2^min(retry_count,6)` 秒起）。
 
 `work hooks status`（human/`--json`）：待上报条数、最旧未上报事件时间、上次成功同步时间、上次错误信息、`telemetry.enabled`/`url` 配置状态。
 

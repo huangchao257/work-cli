@@ -22,6 +22,11 @@ func envError(format string, args ...any) error {
 	return &EnvError{msg: fmt.Sprintf(format, args...)}
 }
 
+// NewEnvError 构造 EnvError（供 engine 外的包标记环境类错误，如 --data 的 IO 失败）。
+func NewEnvError(msg string) error {
+	return &EnvError{msg: msg}
+}
+
 // IsEnvError 判断 err 及其包装链中是否存在 EnvError。
 func IsEnvError(err error) bool {
 	var ee *EnvError

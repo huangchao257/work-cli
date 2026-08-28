@@ -8,17 +8,20 @@
 - **[资源管理模块](./modules/resource.md)** — 安装 AI IDE 资源套装（Skills/MCP/Rules）与委托安装外部 CLI（bundle / cli）
 - **[Hooks 模块](./modules/hooks.md)** — IDE hooks 套装安装与事件采集上报（观察型，阶段一）
 - **[CodeGraph 模块](./modules/codegraph.md)** — 代码知识图谱索引与各目录 `AGENTS.md` 自动维护
+- **[API 模块](./modules/api.md)** — 系统接口 CLI 化：OpenAPI 导入/编译期插件 → 三层命令面（+shortcut / 类型化命令 / call）
 - **[自更新](./modules/selfupdate.md)** — 从 GitHub Releases 检查并静默更新 `work` 自身，更新后重执行原命令
-- **[扩展能力](./extensions.md)** — `work doctor` / `work init` / `work config` / `work pack` 等独立命令
+- **[扩展能力](./extensions.md)** — `work doctor` / `work init` / `work config` / `work pack` / `work publish` / `work search` / `work hooks audit` 等独立命令
 
 ## 模块状态
 
 | 模块 | 能力 | 状态 |
 |------|------|------|
-| 资源管理 | 资源套装 + 外部 CLI 委托安装 | 已实现 |
-| Hooks | IDE 事件采集上报（本地 + 异步内网） | 阶段一（观察型）已实现 |
-| CodeGraph | 知识图谱 + AGENTS.md 自动同步 | 已实现 |
-| 自更新 | GitHub Releases 静默更新 + 重执行 | 已实现 |
+| 资源管理 | 资源套装 + 外部 CLI 委托安装（批量、Registry http/git/maven） | 已实现 |
+| Hooks | IDE 事件采集上报（本地 + 内网同步）+ 本地审计 | 阶段一已实现；阶段二起步（本地审计） |
+| CodeGraph | 知识图谱 + AGENTS.md 自动同步（hook + watch 守护） | 已实现 |
+| API | OpenAPI 导入 / 编译期插件 → 三层命令面 | 首期已实现 |
+| 自更新 | GitHub Releases 静默更新 + 重执行（stable/beta 通道） | 已实现 |
+| 扩展能力 | doctor / init / config / pack / publish / search / plugin | 已实现 |
 
 ## 说明
 

@@ -45,11 +45,16 @@ reexec.go（+ reexec_unix.go / reexec_windows.go）
 self_update:
   enabled: true          # 是否自动更新，默认 true
   check_interval: 2h     # 检查间隔，默认 2h
+  channel: stable        # stable 或 beta，默认 stable
 ```
 
-环境变量 `WORK_AUTO_UPDATE=false` 可关闭自动更新。
+环境变量：`WORK_AUTO_UPDATE=false` 关闭自动更新；`WORK_SELF_UPDATE_CHANNEL=beta` 切换通道（覆盖配置文件）。
 
-`internal/selfupdate/state.go` 持久化上次检查时间，按 `check_interval` 节流，避免每次命令都查询 GitHub。
+- **stable**：仅正式 Release（排除 prerelease tag）。
+- **beta**：优先取最新的 prerelease 版本，无 prerelease 时回退 stable。
+- 通道值非法时报错（`ValidateChannel`），不静默忽略。
+
+`internal/selfupdate/state.go` 持久化上次检查时间，按 `check_interval` 节流，避免每次命令都查询 GitHub。`Updater` 缓存最近一次拉取的 release 信息，同一命令内 Check + Upgrade 不重复请求 GitHub API。
 
 ## 5. 命令
 
@@ -63,7 +68,7 @@ self_update:
 
 ## 6. 版本比较
 
-`version.go::CompareVersions` 按 semver 比较当前版本（`cli.Version`，构建时经 ldflags 注入）与 GitHub Releases 最新版本，决定是否更新。
+`version.go::CompareVersions` 委托给共享包 `internal/semver.Compare`（按 semver 比较当前版本与 GitHub Releases 最新版本；支持 `v` 前缀，`dev` 视为最低版本），决定是否更新。`internal/semver` 是跨模块的版本比较统一入口。
 
 ## 7. 失败处理
 

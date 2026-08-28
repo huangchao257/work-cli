@@ -127,19 +127,31 @@ func resolveHTTP(meta registryResponse, cache string) (string, error) {
 	if strings.TrimSpace(meta.Checksum) == "" {
 		return "", fmt.Errorf("registry 响应缺少 checksum（sha256），拒绝安装")
 	}
-	if err := os.MkdirAll(dest, 0o755); err != nil {
-		return "", fmt.Errorf("创建缓存目录失败: %w", err)
-	}
-	zipPath := filepath.Join(cache, "registry", meta.Name, meta.Version+".zip")
-	if err := downloadFile(meta.DownloadURL, zipPath); err != nil {
-		return "", fmt.Errorf("下载归档失败: %w", err)
-	}
-	// 校验和必填：无 sha256 校验和则拒绝安装，避免 MITM/恶意元数据掉包后的内容零完整性验证。
-	if err := verifyChecksumRequired(zipPath, meta.Checksum); err != nil {
+	// 任一步失败都清理 dest：半成品目录一旦残留，上方 Stat 会永久命中，
+	// 该版本被空目录污染且无法自愈（DetectKind 找不到 manifest）。
+	if err := func() (err error) {
+		defer func() {
+			if err != nil {
+				_ = os.RemoveAll(dest)
+			}
+		}()
+		if err := os.MkdirAll(dest, 0o755); err != nil {
+			return fmt.Errorf("创建缓存目录失败: %w", err)
+		}
+		zipPath := filepath.Join(cache, "registry", meta.Name, meta.Version+".zip")
+		if err := downloadFile(meta.DownloadURL, zipPath); err != nil {
+			return fmt.Errorf("下载归档失败: %w", err)
+		}
+		// 校验和必填：无 sha256 校验和则拒绝安装，避免 MITM/恶意元数据掉包后的内容零完整性验证。
+		if err := verifyChecksumRequired(zipPath, meta.Checksum); err != nil {
+			return err
+		}
+		if err := unzip(zipPath, dest); err != nil {
+			return fmt.Errorf("解压归档失败: %w", err)
+		}
+		return nil
+	}(); err != nil {
 		return "", err
-	}
-	if err := unzip(zipPath, dest); err != nil {
-		return "", fmt.Errorf("解压归档失败: %w", err)
 	}
 	return dest, nil
 }

@@ -32,7 +32,9 @@ type settingsHook struct {
 	Timeout int    `json:"timeout,omitempty"`
 }
 
-func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
+// MergeCursorHooks 将套装的 hook 条目合并进 Cursor hooks.json。
+// kitName 用于按套装置换旧条目：只删本套装先前写入的条目，不动其他套装。
+func MergeCursorHooks(configPath string, kitName string, entries []SidecarEntry) error {
 	var cfg CursorHooksFile
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -56,7 +58,7 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 	for event, list := range cfg.Hooks {
 		filtered := make([]CursorHookEntry, 0, len(list))
 		for _, e := range list {
-			if IsWorkManagedCommand(e.Command) {
+			if IsWorkManagedCommand(e.Command, kitName) {
 				continue
 			}
 			filtered = append(filtered, e)
@@ -85,7 +87,7 @@ func MergeCursorHooks(configPath string, entries []SidecarEntry) error {
 	return atomicWriteJSON(configPath, out)
 }
 
-func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
+func MergeSettingsHooks(configPath string, kitName string, entries []SidecarEntry) error {
 	root := map[string]any{}
 	data, err := os.ReadFile(configPath)
 	if err != nil {
@@ -117,7 +119,7 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 		for _, g := range groups {
 			inner := make([]settingsHook, 0, len(g.Hooks))
 			for _, h := range g.Hooks {
-				if IsWorkManagedCommand(h.Command) {
+				if IsWorkManagedCommand(h.Command, kitName) {
 					continue
 				}
 				inner = append(inner, h)
@@ -158,7 +160,7 @@ func MergeSettingsHooks(configPath string, entries []SidecarEntry) error {
 	return atomicWriteJSON(configPath, out)
 }
 
-func UnmergeCursorHooks(configPath string) error {
+func UnmergeCursorHooks(configPath string, kitName string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -173,7 +175,7 @@ func UnmergeCursorHooks(configPath string) error {
 	for event, list := range cfg.Hooks {
 		filtered := make([]CursorHookEntry, 0, len(list))
 		for _, e := range list {
-			if IsWorkManagedCommand(e.Command) {
+			if IsWorkManagedCommand(e.Command, kitName) {
 				continue
 			}
 			filtered = append(filtered, e)
@@ -191,7 +193,7 @@ func UnmergeCursorHooks(configPath string) error {
 	return atomicWriteJSON(configPath, out)
 }
 
-func UnmergeSettingsHooks(configPath string) error {
+func UnmergeSettingsHooks(configPath string, kitName string) error {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -220,7 +222,7 @@ func UnmergeSettingsHooks(configPath string) error {
 		for _, g := range groups {
 			inner := make([]settingsHook, 0, len(g.Hooks))
 			for _, h := range g.Hooks {
-				if IsWorkManagedCommand(h.Command) {
+				if IsWorkManagedCommand(h.Command, kitName) {
 					continue
 				}
 				inner = append(inner, h)

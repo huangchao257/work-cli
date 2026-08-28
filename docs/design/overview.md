@@ -5,13 +5,14 @@
 ## 1. 整体架构
 
 ```
-用户 (work install / list / uninstall / update / hooks / graph / upgrade)
+用户 (work install / list / uninstall / update / hooks / graph / api / plugin / upgrade)
         │
         ▼
 ┌───────────────────────────────────────┐
 │  CLI 层 (Cobra) — internal/cli/        │
 │  子命令 + 全局参数 + 中文帮助          │
-│  PersistentPreRunE: 自动更新检查+重执行 │
+│  PersistentPreRunE: 信号设置 +         │
+│  自动更新检查+重执行                    │
 └───────────────────────────────────────┘        │ 自动更新
         │                                         ▼
         ▼                              internal/selfupdate/ (GitHub Releases)
@@ -19,7 +20,7 @@
 │  Engine 编排层 — internal/engine/      │
 │  Install: source.Resolve →            │
 │           pkg/manifest.DetectKind →    │
-│           按 kind 分发                  │
+│           按 kind 分发；批量并行≤8      │
 └───────────────────────────────────────┘
         │
    ┌────┼────────────┬───────────────┐
@@ -32,18 +33,24 @@
  (写入 IDE)     (os/exec)       (merge+sidecar+queue)
         │
    source / state / platform / output
+
+work api 子树（独立于 engine）：
+internal/cli/api*.go → internal/api/（System 接口 + Registry
++ 调用编排 + 风险门禁）→ internal/openapi/（纯解析）
+详见 modules/api.md
 ```
 
-分层：`cmd/work → cli.Execute → engine → source/adapter/installer/hooks/state`，辅以 `platform`（跨平台路径）、`output`（human/json 渲染）、`selfupdate`（自更新）、`graph`（CodeGraph 封装）、`catalog`（内置包目录）。
+分层：`cmd/work → cli.Execute → engine → source/adapter/installer/hooks/state`，辅以 `platform`（跨平台路径）、`output`（human/json 渲染）、`selfupdate`（自更新）、`graph`（CodeGraph 封装）、`catalog`（内置包目录）、`api`/`openapi`（系统接口 CLI 化）。
 
 ## 2. 核心原则
 
 1. **一份 manifest 描述一个安装包**，与来源无关；根目录文件名决定类型。
-2. **统一状态文件** `installed.json` 记录三类安装（`kind` 字段区分），支撑 list/uninstall/update。
+2. **统一状态文件** `installed.json` 记录三类安装（`kind` 字段区分），支撑 list/uninstall/update；读写经 flock 文件锁串行化，防并发写丢失更新。
 3. **跨平台路径** 统一经 `internal/platform` 解析，禁止硬编码 OS 路径。
 4. **bundle/hooks**：三个 IDE Adapter 负责路径映射、文件写入、配置 merge。
-5. **cli**：按 manifest 执行受信安装命令（按 OS 分平台），**不接受任意 shell**（防注入）。
+5. **cli**：按 manifest 执行受信安装命令（按 OS 分平台），**不接受任意 shell**（防注入）；update/uninstall 的回退引用仅接受内置/Registry 资源名（`source.ParseTrustedRef`）。
 6. **观察型 hook**：上报脚本透传 stdin/stdout、`exit 0`，不修改 IDE 行为。
+7. **共享基础包**：`usage`（用法错误 → 退出码 2）、`semver`（版本比较）、`configcache`（config.yaml 按 mtime 缓存）跨模块复用，避免重复实现。
 
 ## 3. 包类型与 Manifest 探测
 
@@ -61,21 +68,23 @@
 
 | 命令 | 作用 |
 |------|------|
-| `work install <name>` | 安装内置或 Registry 资源（bundle/cli/hooks） |
+| `work install <name...>` | 安装内置或 Registry 资源（bundle/cli/hooks），支持一次多个（并行） |
 | `work list [--kind] [--ide]` | 列出已安装项 |
-| `work uninstall <name>` | 卸载 |
+| `work uninstall <name...>` / `--all` | 卸载，支持多个或全部（`--kind` 过滤） |
 | `work update [name]` | 更新本机已安装资源 |
 | `work upgrade [--check] [--version]` | 更新 work 自身（见 [自更新](./modules/selfupdate.md)） |
 | `work version` | 显示版本（默认检查更新） |
-| `work hooks status\|sync` | hooks 队列状态 / 手动上报（见 [Hooks](./modules/hooks.md)） |
-| `work graph init\|sync\|status` | CodeGraph 图谱（见 [CodeGraph](./modules/codegraph.md)） |
+| `work hooks status\|sync\|audit` | hooks 队列状态 / 手动上报 / 本地合规审计（见 [Hooks](./modules/hooks.md)） |
+| `work hooks report` | 供 hook 脚本调用：事件入队（非用户直接执行） |
+| `work graph init\|sync\|status\|watch` | CodeGraph 图谱（见 [CodeGraph](./modules/codegraph.md)） |
+| `work api ...` | 系统接口 CLI 化：三层命令面 + 管理/自省（见 [API](./modules/api.md)） |
+| `work plugin list\|run` | 发现并调用 `~/.work/plugins/` 下的第三方插件 |
 | `work doctor` | 体检本机运行环境（见 [扩展能力](./extensions.md)） |
 | `work init <type> <name>` | 生成套装骨架（见 [扩展能力](./extensions.md)） |
 | `work config get\|set\|list\|path` | 读写 `~/.work/config.yaml`（见 [扩展能力](./extensions.md)） |
 | `work pack <dir>` | 打包套装为可分发归档（见 [扩展能力](./extensions.md)） |
 | `work publish <archive>` | 上传归档至 Registry（见 [扩展能力](./extensions.md)） |
 | `work search [query]` | 列出可安装资源（见 [扩展能力](./extensions.md)） |
-| `work hooks audit` | 本地 hooks 事件合规审计（见 [扩展能力](./extensions.md)） |
 | `work help [command]` | 中文帮助 |
 
 全局 persistent flag（`cli/root.go`）：
@@ -141,7 +150,9 @@ telemetry:                         # 见 hooks 模块
 ├── config.yaml
 ├── installed.json
 ├── examples/                # 随包内置资源
-├── cache/                   # Registry 下载缓存
+├── cache/                   # Registry 下载缓存（含 git clone / maven jar）
+├── api/systems/<name>/      # 见 API 模块：system.yaml / openapi.yaml / catalog.json
+├── plugins/<name>/          # 第三方插件（plugin.yaml + 可执行命令）
 ├── telemetry/               # 见 hooks 模块
 │   ├── queue.jsonl
 │   ├── archive/
@@ -191,17 +202,23 @@ work-cli/
 ├── cmd/work/main.go              # 入口 → cli.Execute()
 ├── internal/
 │   ├── cli/                      # cobra 子命令 + 全局参数 + 中文帮助 + 自动更新/reexec
-│   ├── engine/                   # install/list/uninstall/update 编排，按 kind 分发
+│   │   └── api*.go               # work api 子树（三层命令面 + 动态装配）
+│   ├── engine/                   # install/list/uninstall/update 编排，按 kind 分发；batch.go 批量并行
 │   ├── bundle/                   # bundle.yaml 解析与校验
 │   ├── installer/                # installer.yaml 解析与 CLI 命令执行
 │   ├── hooks/                    # hooks.yaml + 事件/脱敏/队列/上报/sidecar
-│   ├── source/                   # 名称解析（拒绝本地/git）+ Registry
+│   ├── api/                      # 系统接口框架：System 接口 + Registry + 调用编排 + 风险门禁
+│   │   └── demo/                 # 内嵌示例系统（mock 传输，离线全链路）
+│   ├── openapi/                  # OpenAPI 3.x 纯解析（Load/$ref/Index → Catalog）
+│   ├── ai/                       # AI 模型 profile 配置（ai.models 段，供 doctor 等消费）
+│   ├── plugin/                   # ~/.work/plugins 发现与调用
+│   ├── source/                   # 名称解析（拒绝本地/git）+ Registry（http/git/maven）
 │   ├── catalog/                  # 内置名称 → examples/<dir>
 │   ├── adapter/                  # Cursor/Qoder/Claude 适配器 + MCP merge
-│   ├── state/                    # installed.json
-│   ├── platform/                 # 跨平台路径 + IDE 探测 + env 提示
-│   ├── selfupdate/               # GitHub Releases 检查/下载/替换/重执行
-│   ├── graph/                    # codegraph CLI 封装
+│   ├── state/                    # installed.json（flock 文件锁）
+│   ├── platform/                 # 跨平台路径 + IDE 探测 + env 提示 + flock
+│   ├── selfupdate/               # GitHub Releases 检查/下载/替换/重执行（stable/beta 通道）
+│   ├── graph/                    # codegraph CLI 封装 + watch 守护（fsnotify）
 │   ├── doctor/                   # 体检诊断
 │   ├── scaffold/                 # work init 脚手架
 │   ├── config/                   # work config 读写 ~/.work/config.yaml
@@ -209,6 +226,9 @@ work-cli/
 │   ├── publish/                  # work publish 上传 Registry
 │   ├── search/                   # work search 可用资源发现
 │   ├── audit/                    # work hooks audit 本地合规审计
+│   ├── usage/                    # 共享 UsageError（→ 退出码 2）
+│   ├── semver/                   # 共享语义化版本比较
+│   ├── configcache/              # config.yaml 按 mtime 的进程内缓存
 │   ├── pkg/manifest/             # DetectKind
 │   └── output/                   # human / json 渲染
 ├── examples/                     # 内置套装（dev-kit/openspec/company-hooks/codegraph-*），兼测试夹具
@@ -228,9 +248,9 @@ work-cli/
 
 | 功能 | 说明 |
 |------|------|
-| Hooks 阶段二 | 执行审计：服务端/本地策略引擎对 shell/mcp/file_edit 合规审计与告警（旁路分析，不阻断 IDE） |
+| Hooks 阶段二（剩余） | 服务端集中审计、`telemetry.audit_rules` 引用策略（本地审计已落地，见 [扩展能力](./extensions.md) 第 7 节） |
 | Hooks 阶段三 | 触发执行自动化：阻断型 hooks、审批流、Webhook、`failClosed` 策略 |
-| `work pack/publish/doctor/init` | 打包/发布/体检/模板 |
+| API 二期 | OAuth/设备流、multipart 上传、分页聚合、更多 flag 类型（见 [API 模块](./modules/api.md) 第 11 节） |
 | 认证 | SSO/API Key，对接 Registry、Git、Telemetry（已预留 `Authenticator`/`TelemetryAuthenticator` 接口，默认空实现） |
 | Vault 集成 | 自动拉取 MCP 密钥 / 上报带短期 token |
 | 更多 IDE | VS Code、Windsurf 等 |

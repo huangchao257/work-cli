@@ -55,6 +55,11 @@ func shouldSkipAutoUpdate(cmd *cobra.Command) bool {
 	case "upgrade", "version", "help", "completion", "work":
 		return true
 	}
+	// cobra 的 shell 补全内部命令：Tab 补全会同步触发下载与 reexec
+	// （最长卡 2 分钟），且 DisableFlagParsing 使 --no-auto-update 无法生效。
+	if strings.HasPrefix(name, "__complete") {
+		return true
+	}
 	if strings.HasPrefix(name, "help") {
 		return true
 	}

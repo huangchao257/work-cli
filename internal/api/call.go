@@ -159,6 +159,9 @@ func buildRequest(baseURL string, op *openapi.CatalogOperation, params map[strin
 			}
 		case "header":
 			if key, ok := sourceKey(p); ok {
+				if err := validateHeaderValue(params[key]); err != nil {
+					return nil, usage.Newf("header %s 的值非法: %v", p.Name, err)
+				}
 				header.Set(p.Name, params[key])
 				markPlaced(p, key)
 			} else if p.Required {
@@ -166,6 +169,9 @@ func buildRequest(baseURL string, op *openapi.CatalogOperation, params map[strin
 			}
 		case "cookie":
 			if key, ok := sourceKey(p); ok {
+				if err := validateHeaderValue(params[key]); err != nil {
+					return nil, usage.Newf("cookie %s 的值非法: %v", p.Name, err)
+				}
 				header.Add("Cookie", p.Name+"="+params[key])
 				markPlaced(p, key)
 			} else if p.Required {

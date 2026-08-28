@@ -1,7 +1,7 @@
 # 扩展能力设计
 
-> 在现有四大模块（资源管理 / Hooks / CodeGraph / 自更新）基础上新增的独立命令。跨模块共性见 [总览](./overview.md)。
-> 设计原则：每项能力只用 Go 标准库、只新增文件、命令自注册（`init()` 调 `rootCmd.AddCommand`），互不冲突，可并行实现。
+> 在核心模块（资源管理 / Hooks / CodeGraph / 自更新 / API）基础上新增的独立命令。跨模块共性见 [总览](./overview.md)。
+> 状态：**均已实现**（`work hooks audit` 见第 7 节）。设计原则：每项能力只用 Go 标准库 + 既有依赖、命令自注册（`init()` 调 `rootCmd.AddCommand`），互不冲突。
 
 ## 1. `work doctor` — 诊断
 
@@ -9,17 +9,25 @@
 
 一键体检本机 `work` 运行环境，定位 README「故障排查」表中的常见问题（IDE 未检测、缺环境变量、config 损坏、状态文件不可读、MCP 配置无效、codegraph 缺失）。
 
-### 1.2 检查项
+### 1.2 检查项（当前实现）
 
-| 检查 | 实现 | 失败提示 |
-|------|------|----------|
-| IDE 探测 | `adapter.All()` 各 `Detect()` | 列出已检测/未检测 IDE；`--ide` 显式指定但未检测则提示安装 |
+| 检查 | 实现 | 说明 |
+|------|------|------|
+| IDE 探测 | `adapter.All()` 各 `Detect()` | 列出已检测/未检测 IDE |
 | `work` 在 PATH | `exec.LookPath("work")` 或 `os.Executable()` | 提示加入 PATH |
-| `~/.work/config.yaml` 合法 | yaml 解析；不要求存在 | 损坏则提示修复或删除 |
-| `installed.json` 可读 | `state.Open(scope)` | 损坏则提示 |
+| `~/.work/config.yaml` 合法 | yaml 解析；不要求存在 | 损坏则标失败 |
+| `installed.json` 可读 | `state.Open(scope)` | 损坏则标失败 |
 | MCP 配置合法 | 各已检测 IDE 的 MCP 文件 JSON 解析 | 非法则提示文件路径 |
-| codegraph 可用 | `exec.LookPath("codegraph")` + `jq` | 缺失则提示安装 codegraph-stack |
-| 自更新配置 | 读 `self_update` / `WORK_AUTO_UPDATE` | 显示当前状态 |
+| codegraph 可用 | `exec.LookPath("codegraph")` | 缺失则提示安装 codegraph-stack |
+| `jq` 可用 | `exec.LookPath("jq")` | codegraph 脚本依赖 |
+| 自更新配置 | `selfupdate.LoadConfig()` | 显示 enabled/check_interval（info） |
+| AI 模型配置 | `ai.ListProfiles()` + 默认 profile 加载 | `ai.models` 段存在但不可用标 warning（info） |
+| Registry 连通性 | 已配置 `registry.url` 时 HEAD 探测（5s 超时） | info，不阻断 |
+| hooks sidecar | `~/.work/hooks-installed/` 至少一份合法记录 | info |
+| 残留临时文件 | `~/.work` 下 `*.tmp` 等 | info |
+| 文件权限 | 关键文件/目录权限抽查 | info |
+
+**severity 两级**：`error`（失败影响退出码）与 `info`（仅展示，不计失败）——连通性类检查均为 info，避免内网抖动导致 doctor 永远红。
 
 ### 1.3 命令
 
@@ -30,8 +38,8 @@ work doctor [--scope user|project] [--ide ...] [--json]
 ### 1.4 输出
 
 - human：逐项 `✓` / `✗` 清单，末尾汇总「N 项通过 / M 项失败」。
-- `--json`：`{ "checks": [{name, ok, detail}], "summary": {...} }`。
-- 退出码：全部通过 `0`，任一失败 `1`（便于 CI）。
+- `--json`：`{ "checks": [{name, ok, detail, severity}], ... }`。
+- 退出码：全部通过 `0`，存在 severity=error 且未通过 `1`（便于 CI）。
 
 ### 1.5 实现
 
@@ -221,7 +229,7 @@ GET {registry.url}/bundles   → [{ "name","type","version","description" }]
 
 ---
 
-## 7. Hooks 阶段二：本地审计引擎
+## 7. Hooks 阶段二第一步：本地审计引擎（已实现）
 
 ### 7.1 目标
 
@@ -295,9 +303,9 @@ work hooks audit [--policy path] [--file queue.jsonl] [--since duration] [--json
 
 ## 8. 实现约束（共同）
 
-- 仅用 Go 标准库 + 既有依赖（`cobra`/`yaml.v3`）；**不得**新增依赖、不得改 `go.mod`/`go.sum`。
-- **只新增文件**：新包目录 + 新 `internal/cli/<cmd>.go`；**不得**修改 `root.go`、`help.go`、`go.mod`、既有包文件。
-- 命令自注册：`func init() { rootCmd.AddCommand(xxxCmd) }`。
+- 仅用 Go 标准库 + 既有依赖（`cobra`/`yaml.v3`/`fsnotify`）；不随意新增依赖。
+- 命令自注册：`func init() { rootCmd.AddCommand(xxxCmd) }`；hooks 子命令经 `hooksCmd.AddCommand`（同级新文件 `hooks_audit.go`）。
 - 复用全局 flag：`scope`/`ide`/`kind`/`dryRun`/`asJSON`；中文 `Short`/`Long`/`Example` 直接写在 `cobra.Command` 上。
-- 输出：human 用 `fmt.Fprintf`；JSON 用 `output.PrintJSON(w, v)`；非 1 退出码用 `exitErr(code, err)`。
+- 输出：human 用 `fmt.Fprintf`；JSON 用 `output.PrintJSON(w, v)`。
+- 用法错误统一用 `internal/usage` 包（`usage.Error` → 退出码 2），环境不满足 → 退出码 3（`exitErr`/`ExitUsageErr`）。
 - 每包附 `_test.go`，覆盖核心逻辑；自验证 `go build ./...` 与 `go test ./<pkg>/...` 通过。

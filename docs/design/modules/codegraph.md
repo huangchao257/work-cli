@@ -71,6 +71,10 @@ codegraph query --kind function|struct   → 提取关键符号
 
 ## 6. 自动同步机制
 
+两条互补路径：
+
+**路径 A — IDE hook（需 Cursor 等触发）**
+
 ```
 保存源码 (Cursor afterFileEdit)
         │
@@ -87,7 +91,11 @@ codegraph sync  →  generate-agents.sh --skip-sync
 各目录 AGENTS.md 更新
 ```
 
-备选：`watch-agents.sh` 用 inotify/fswatch 监听文件系统，不依赖 IDE hook。
+**路径 B — `work graph watch` 守护进程（不依赖 IDE）**
+
+`internal/graph/watch.go` 用 fsnotify 监听项目源码文件（`.go/.ts/.js/.py` 等），防抖聚合后自动执行 `codegraph sync` + 重新生成 AGENTS.md；新建目录会被动态加入监听。作为命令行守护进程运行，适合非 Cursor IDE 或纯终端开发场景。
+
+脚本查找顺序（`runner.go::findScript`，安全考量）：用户级 Skill 目录（cursor/claude/qoder）优先，项目级 `.cursor/skills/` 最后——防止恶意仓库自带同名脚本覆盖可信的用户级脚本。
 
 ## 7. 使用流程
 
@@ -103,6 +111,7 @@ work install codegraph-kit --scope project   # 自动 post_install → graph ini
 work graph init    # 初始化 + 无感自动同步
 work graph sync    # 手动同步
 work graph status  # 查看状态
+work graph watch   # 启动文件监控守护进程，源码变更后自动更新 AGENTS.md
 ```
 
 图谱数据在 `.codegraph/`（已 gitignore）。`AGENTS.md` 是否提交由团队自行决定，默认不加入 `.gitignore`。

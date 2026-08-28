@@ -87,19 +87,34 @@ update:
 
 ## 3. 来源解析与内置 Catalog
 
-`internal/source/resolver.go::Resolve` 按 `Ref` 类型解析。`ref.go::ParseInstallName` / `ValidateInstallName` **仅接受名称**，拒绝本地路径与 git 引用（`git.go`/`local.go` 解析器存在但公开安装路径不使用）。
+`internal/source/resolver.go::Resolve` 按 `Ref` 类型解析：
+
+| Ref 类型 | 解析方式 |
+|----------|----------|
+| `KindRegistry` | 先查内置 catalog，未命中走 Registry |
+| `KindGit` / `KindLocal` | 解析器存在（`git.go`/`local.go`），**公开安装路径不使用** |
+
+`ref.go::ParseInstallName` / `ValidateInstallName` **仅接受名称**（小写字母、数字、连字符），拒绝本地路径、`git:` 引用与 `..`。`ParseTrustedRef` 用于 update/uninstall 读取已安装记录中保存的引用：项目级 `.work/installed.json` 可能来自不可信仓库，回退到本地/git 引用会让攻击者借 `installer.run` 执行任意命令，因此**同样仅接受内置/Registry 资源名**。
 
 `internal/catalog/builtin.go` 硬编码名称 → `examples/<dir>`，内置项：`dev-kit`、`codegraph-stack`、`codegraph-kit`、`codegraph`、`company-hooks`、`openspec`、`openspec-mock`。
 
 `examplesRoot()` 解析顺序：`WORK_EXAMPLES_DIR` 环境变量 → `~/.work/examples` → 相对二进制的 `examples`/`../examples`/`../share/work/examples` → 从 cwd 向上找（开发/测试）。`examples/` 既是随包发布的内置资源，也是测试夹具。
 
-内部 Registry（需在 `~/.work/config.yaml` 配 `registry.url`）：
+内部 Registry（需在 `~/.work/config.yaml` 配 `registry.url`，**强制 HTTPS**）：
 
 ```
-GET /bundles/{name}/latest      → { name, type, version, download_url, checksum }
+GET /bundles/{name}/latest   → { name, type, version, download_url, checksum, ref?, subdir? }
 ```
 
-`type` 为 `bundle`/`cli`/`hooks`，包内分别含对应 manifest。
+`type` 为 `bundle`/`cli`/`hooks`（归档直下），另支持两种间接类型：
+
+| `type` | 行为 |
+|--------|------|
+| （空，归档） | 下载 `download_url` 归档 → sha256 校验（缺失则拒绝安装）→ 解压到缓存 |
+| `git` | `download_url` 为仓库地址，按 `ref`（缺省取 `version`）clone 到缓存；`subdir` 可选（校验不得逃逸仓库目录） |
+| `maven` | `download_url` 为 `groupId:artifactId:version` 坐标，从 Registry 拼出 jar 路径下载 → sha256 校验 → 解压 |
+
+缓存位置 `~/.work/cache/registry/<name>/<version>/`，已存在则直接复用。下载客户端拒绝跨 host 重定向与协议降级；name/version 均做路径分量校验（防路径穿越）。
 
 ## 4. IDE 适配器（`internal/adapter/`）
 
@@ -148,16 +163,22 @@ IDE 未检测到：默认跳过并 warning（`--json` 写入 `warnings`）；`--
 4. `--dry-run`：bundle 打印将写入路径，cli 打印将执行命令
 5. 输出中文友好结果（human 或 `--json`）
 
+**批量安装**（`batch.go::InstallBatch`）：`work install a b c` 一次传多个名称，各安装独立并行（信号量限并发 8），单项失败不影响其他项；结果聚合为 `BatchResult{results, successes, failures}`。manifest 校验（资源标识符、hooks 源路径，防路径穿越与脚本注入）发生在解析阶段。
+
 ### 5.2 list / uninstall / update
 
 - **list**（`list.go`）：读 `installed.json`，输出 name/kind/version/scope/ref/installed_at；bundle 额外显示目标 IDE 与资源；`--kind bundle|cli` 过滤，`--ide` 过滤（仅 bundle）。
-- **uninstall**（`uninstall.go`）：按 name（bundle 还需 scope）查记录 → bundle 各 Adapter 回滚 → cli 执行 `uninstall.run`（缺失则提示手动卸载，仅删状态）→ 删状态记录。
-- **update**（`update.go`）：读 `installed.json` 记录的 name 重新解析安装；bundle 同 scope 先 uninstall 再 install；cli 有 `update.run` 则执行，否则重新 `install`。
+- **uninstall**（`uninstall.go`）：按 name（bundle 还需 scope）查记录 → bundle 各 Adapter 回滚 → cli 执行 `uninstall.run`（缺失则提示手动卸载，仅删状态）→ 删状态记录。批量：`work uninstall a b c` 并行执行；`work uninstall --all [--kind ...]` 卸载全部（或某类）已安装资源。
+- **update**（`update.go`）：读 `installed.json` 记录的 name 经 `ParseTrustedRef` 重新解析安装（仅接受受信资源名）；bundle 同 scope 先 uninstall 再 install（不误删刚装的资源）；cli 有 `update.run` 则执行，否则重新 `install`。
 
 ## 6. 示例包
 
 | 名称 | 类型 | 说明 |
 |------|------|------|
 | `dev-kit` | bundle | 公司通用 AI 技能包（示例 skills/rules） |
+| `codegraph-stack` | cli | CodeGraph 一键安装（内部脚本编排 codegraph + kit，见 CodeGraph 模块） |
+| `codegraph-kit` | bundle | AGENTS.md 生成 Skill + MCP 配置（project scope） |
+| `codegraph` | cli | 安装上游 codegraph CLI（npm） |
+| `company-hooks` | hooks | IDE 事件上报套装（见 Hooks 模块） |
 | `openspec` | cli | OpenSpec 官方 CLI 安装（`npm install -g @fission-ai/openspec@latest`） |
 | `openspec-mock` | cli | mock 命令，用于 CI 集成测试 |

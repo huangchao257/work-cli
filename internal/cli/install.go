@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"fmt"
+
 	"github.com/huangchao257/work-cli/internal/engine"
 	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/huangchao257/work-cli/internal/source"
@@ -55,9 +57,17 @@ var installCmd = &cobra.Command{
 			return err
 		}
 		if asJSON {
-			return output.PrintJSON(cmd.OutOrStdout(), br)
+			if err := output.PrintJSON(cmd.OutOrStdout(), br); err != nil {
+				return err
+			}
+		} else if err := output.PrintHumanBatch(cmd.OutOrStdout(), br); err != nil {
+			return err
 		}
-		return output.PrintHumanBatch(cmd.OutOrStdout(), br)
+		// 存在失败项 → 退出码 1（与单个安装失败的契约一致，供脚本 && 链判断）
+		if br.Failures > 0 {
+			return exitErr(1, fmt.Errorf("批量安装 %d 项中有 %d 项失败", len(args), br.Failures))
+		}
+		return nil
 	},
 }
 

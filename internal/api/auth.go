@@ -187,7 +187,12 @@ func resolveHTTPClient(s System, timeout string) (*http.Client, error) {
 }
 
 // writeSystemSpec 将规范快照与 catalog 原子写入系统目录。
+// specFile 经 safeSpecFileName 统一校验：refresh 路径的 specFile 来自手编的
+// system.yaml，不校验会把下载内容写到系统目录外的任意相对路径（路径穿越写）。
 func writeSystemSpec(name string, spec []byte, specFile string, catalog *openapi.Catalog) error {
+	if !safeSpecFileName(specFile) {
+		return usage.Newf("system.yaml 的 spec_file %q 非法（只允许当前系统目录内的文件名）", specFile)
+	}
 	dir, err := systemDir(name)
 	if err != nil {
 		return err
@@ -210,6 +215,10 @@ func writeSystemSpec(name string, spec []byte, specFile string, catalog *openapi
 
 // readSystemSpecText 读取规范快照文本（schema 展示用）。
 func readSystemSpecText(name, specFile string) (string, error) {
+	// specFile 来自手编 system.yaml，同样过路径穿越校验（读取侧防任意文件读）
+	if specFile != "" && !safeSpecFileName(specFile) {
+		return "", usage.Newf("system.yaml 的 spec_file %q 非法（只允许当前系统目录内的文件名）", specFile)
+	}
 	dir, err := systemDir(name)
 	if err != nil {
 		return "", err

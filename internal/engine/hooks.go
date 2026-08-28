@@ -153,11 +153,11 @@ func installHooks(ctx context.Context, pkgDir string, opts Options, refRaw strin
 			return Result{}, fmt.Errorf("未知 IDE: %s", ideName)
 		}
 		if info.HooksFile == "hooks.json" {
-			if err := hooks.MergeCursorHooks(configPath, entries); err != nil {
+			if err := hooks.MergeCursorHooks(configPath, manifest.Name, entries); err != nil {
 				return Result{}, fmt.Errorf("合并 Cursor hooks 失败: %w", err)
 			}
 		} else {
-			if err := hooks.MergeSettingsHooks(configPath, entries); err != nil {
+			if err := hooks.MergeSettingsHooks(configPath, manifest.Name, entries); err != nil {
 				return Result{}, fmt.Errorf("合并 settings hooks 失败: %w", err)
 			}
 		}
@@ -221,11 +221,11 @@ func uninstallHooks(ctx context.Context, rec *state.BundleRecord, dryRun bool) e
 	}
 	for ide, info := range sc.IDEs {
 		if ideInfo := platform.LookupIDE(platform.IDE(ide)); ideInfo != nil && ideInfo.HooksFile == "hooks.json" {
-			if err := hooks.UnmergeCursorHooks(info.ConfigPath); err != nil {
+			if err := hooks.UnmergeCursorHooks(info.ConfigPath, rec.Name); err != nil {
 				return fmt.Errorf("移除 Cursor hooks 失败: %w", err)
 			}
 		} else {
-			if err := hooks.UnmergeSettingsHooks(info.ConfigPath); err != nil {
+			if err := hooks.UnmergeSettingsHooks(info.ConfigPath, rec.Name); err != nil {
 				return fmt.Errorf("移除 settings hooks 失败: %w", err)
 			}
 		}
@@ -248,9 +248,9 @@ func uninstallHooksFallback(rec *state.BundleRecord, dryRun bool) error {
 		}
 		if ideInfo := platform.LookupIDE(platform.IDE(ide)); ideInfo != nil && ideInfo.HooksFile == "hooks.json" {
 			// 尽力移除，失败时配置文件可能已不存在
-			_ = hooks.UnmergeCursorHooks(configPath)
+			_ = hooks.UnmergeCursorHooks(configPath, rec.Name)
 		} else {
-			_ = hooks.UnmergeSettingsHooks(configPath)
+			_ = hooks.UnmergeSettingsHooks(configPath, rec.Name)
 		}
 		scriptDir, err := hooks.HooksScriptDir(ide, rec.Scope, rec.Name)
 		if err == nil {

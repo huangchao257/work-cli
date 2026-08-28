@@ -190,7 +190,7 @@ func TestSanitizeCatalogDegradesBadEntries(t *testing.T) {
 	}
 	bad := `{"title":"T","version":"1","openapi":"3.0.3","operations":[
 		{"id":"bad","method":"GET","path":"/a","cli_path":[],"dynamic":true},
-		{"id":"good","method":"GET","path":"/b","cli_path":["pets","list"],"dynamic":true},
+		{"id":"good","method":"GET","path":"/b","cli_path":["pets","query"],"dynamic":true},
 		{"id":"ws","method":"GET","path":"/c","cli_path":["a b","x"],"dynamic":true}
 	]}`
 	if err := os.WriteFile(filepath.Join(dir, "catalog.json"), []byte(bad), 0o644); err != nil {
@@ -300,8 +300,8 @@ func TestSanitizeCatalogResolvesDuplicateCLIPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	dup := `{"title":"D","version":"1","openapi":"3.0.3","operations":[
-		{"id":"first","method":"GET","path":"/a","cli_path":["pets","list"],"dynamic":true},
-		{"id":"second","method":"GET","path":"/b","cli_path":["pets","list"],"dynamic":true}
+		{"id":"first","method":"GET","path":"/a","cli_path":["pets","query"],"dynamic":true},
+		{"id":"second","method":"GET","path":"/b","cli_path":["pets","query"],"dynamic":true}
 	]}`
 	if err := os.WriteFile(filepath.Join(dir, "catalog.json"), []byte(dup), 0o644); err != nil {
 		t.Fatal(err)

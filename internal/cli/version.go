@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/huangchao257/work-cli/internal/log"
+	"github.com/huangchao257/work-cli/internal/output"
 	"github.com/huangchao257/work-cli/internal/selfupdate"
 	"github.com/spf13/cobra"
 )
@@ -23,24 +24,36 @@ var versionCmd = &cobra.Command{
 		  work version --json
 		  work version --check-update=false`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if _, err := fmt.Fprintln(cmd.OutOrStdout(), Version); err != nil {
+		w := cmd.OutOrStdout()
+		// 检查更新（提示只进 human 模式；--json 输出契约必须保持纯 JSON）
+		var latest string
+		if versionCheckUpdate {
+			cfg, _ := selfupdate.LoadConfig()
+			updater := selfupdate.NewUpdater(Version)
+			updater.Channel = cfg.Channel
+			res, err := updater.Check(signalContext())
+			if err != nil {
+				log.Warnf("[work]", "检查更新失败: %v", err)
+			} else if res.UpdateAvailable {
+				latest = res.Latest
+			}
+		}
+
+		if asJSON {
+			return output.PrintJSON(w, map[string]any{
+				"version":          Version,
+				"update_available": latest != "",
+				"latest":           latest,
+			})
+		}
+		if _, err := fmt.Fprintln(w, Version); err != nil {
 			return err
 		}
-		if !versionCheckUpdate {
-			return nil
+		if latest != "" {
+			_, err := fmt.Fprintf(w, "有新版本 %s 可用，运行 work upgrade 更新\n", latest)
+			return err
 		}
-		cfg, _ := selfupdate.LoadConfig()
-		updater := selfupdate.NewUpdater(Version)
-		updater.Channel = cfg.Channel
-		res, err := updater.Check(signalContext())
-		if err != nil {
-			log.Warnf("[work]", "检查更新失败: %v", err)
-			return nil
-		}
-		if res.UpdateAvailable {
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "有新版本 %s 可用，运行 work upgrade 更新\n", res.Latest)
-		}
-		return err
+		return nil
 	},
 }
 
