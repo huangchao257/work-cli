@@ -6,6 +6,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,11 +53,15 @@ func Load() (*yaml.Node, error) {
 			return root, nil
 		}
 	}
-	// 空文件或顶层非 mapping：返回空 mapping，避免丢失已有数据时误判。
+	// 顶层非 mapping（标量/null）或纯注释文件：返回空 mapping。
+	// 注：纯注释文件（无任何键）解析后 doc.Content 为空，注释本身已被
+	// yaml.v3 丢弃、无法找回——此类文件 Set 后注释丢失是解析器的固有限制。
 	return emptyMapping(), nil
 }
 
 // Save 将根 mapping node 写回配置文件，自动创建父目录，权限 0600，UTF-8/LF。
+// 缩进固定 2 空格：项目配置文档与用户手写习惯均为 2 空格（yaml.v3 默认 4，
+// 不统一会造成每次 set/unset 把整份文件重排）。
 func Save(root *yaml.Node) error {
 	p, err := Path()
 	if err != nil {
@@ -65,7 +70,7 @@ func Save(root *yaml.Node) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
 		return fmt.Errorf("创建配置目录失败: %w", err)
 	}
-	data, err := yaml.Marshal(root)
+	data, err := marshalConfig(root)
 	if err != nil {
 		return fmt.Errorf("编码配置失败: %w", err)
 	}
@@ -132,9 +137,18 @@ func Get(key string) (string, bool, error) {
 	return "", false, nil
 }
 
-// redactSecretValue 对含 api_key 后缀的键值进行脱敏，返回 [已设置] 或 [未设置]。
+// redactSecretValue 对含 api_key 的键值进行脱敏，返回 [已设置] 或 [未设置]。
+// 键名本身（顶层无点分路径，如 "api_key"）同样匹配。
 func redactSecretValue(key, val string) string {
-	if strings.HasSuffix(key, ".api_key") || strings.HasSuffix(key, ".API_KEY") {
+	lk := strings.ToLower(key)
+	if lk == "api_key" || strings.HasSuffix(lk, ".api_key") {
+		if strings.TrimSpace(val) == "" {
+			return "[未设置]"
+		}
+		return "[已设置]"
+	}
+	// 大小写变体（API_KEY）保守脱敏
+	if strings.HasSuffix(key, ".API_KEY") || key == "API_KEY" {
 		if strings.TrimSpace(val) == "" {
 			return "[未设置]"
 		}
@@ -272,8 +286,11 @@ func setNode(root *yaml.Node, key, value string) error {
 }
 
 func unsetNode(root *yaml.Node, key string) error {
-	cur := root
 	parts := strings.Split(key, ".")
+	// 记录各级节点（含 root → … → 叶子父级），删除叶子后自底向上清理空 mapping
+	var chain []*yaml.Node
+	cur := root
+	chain = append(chain, cur)
 	for i, seg := range parts {
 		v, idx := findValue(cur, seg)
 		if idx < 0 {
@@ -282,12 +299,32 @@ func unsetNode(root *yaml.Node, key string) error {
 		if i == len(parts)-1 {
 			// 移除 key/value 配对（idx-1 为键，idx 为值）
 			cur.Content = append(cur.Content[:idx-1], cur.Content[idx+1:]...)
+			// 自底向上清理空 mapping：unset a.b.c 后不留 a: {b: {}} 空壳。
+			// 仅当 mapping 变空且无注释时清理（有注释说明用户留了说明，保留）。
+			for j := len(chain) - 1; j >= 1; j-- {
+				node := chain[j]
+				if len(node.Content) > 0 {
+					break
+				}
+				if node.HeadComment != "" || node.LineComment != "" || node.FootComment != "" {
+					break
+				}
+				// 从上一级移除指向 node 的键值对
+				upper := chain[j-1]
+				for k := 0; k+1 < len(upper.Content); k += 2 {
+					if upper.Content[k+1] == node {
+						upper.Content = append(upper.Content[:k], upper.Content[k+2:]...)
+						break
+					}
+				}
+			}
 			return nil
 		}
 		if v.Kind != yaml.MappingNode {
 			return errUsage("键路径冲突: %s 已存在且非映射", seg)
 		}
 		cur = v
+		chain = append(chain, cur)
 	}
 	return nil
 }
@@ -376,4 +413,18 @@ func scalarNode(raw string) *yaml.Node {
 		return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: raw}
 	}
 	return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: raw}
+}
+
+// marshalConfig 以 2 空格缩进序列化根节点。
+func marshalConfig(root *yaml.Node) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return nil, err
+	}
+	if err := enc.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }

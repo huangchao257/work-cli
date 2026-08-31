@@ -438,7 +438,17 @@ func checkHooksConfig() CheckResult {
 // checkStaleTempFiles 检查常见位置是否有残留的临时文件。
 func checkStaleTempFiles() CheckResult {
 	cr := CheckResult{Name: "残留临时文件", Severity: SeverityInfo}
-	patterns := []string{".work-upgrade-*", ".installed-*.json", ".work-tmp-*"}
+	// 模式与各写入方 CreateTemp 的实际前缀对齐（去掉无人使用的 .work-tmp-*）：
+	// state ".installed-*.json"、selfupdate ".work-upgrade-*"/".self-update-*.json"、
+	// hooks ".queue-*.jsonl"/".sync-state-*.json"、sidecar ".sidecar-*.json"
+	patterns := []string{
+		".work-upgrade-*",
+		".installed-*.json",
+		".self-update-*.json",
+		".queue-*.jsonl",
+		".sync-state-*.json",
+		".sidecar-*.json",
+	}
 	var found []string
 
 	// 检查 HOME 目录

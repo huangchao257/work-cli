@@ -78,12 +78,13 @@ func LoadModelConfig(profile string) (*ModelConfig, error) {
 	if strings.TrimSpace(cfg.Timeout) == "" {
 		cfg.Timeout = "120s"
 	}
-	// 展开 api_key 中的环境变量
-	cfg.APIKey = expandEnv(cfg.APIKey)
-	// 校验必填
+	// 先校验再展开：expandEnv 会把 ${FOO} 替换为 os.Getenv 结果（未设置为
+	// 空串），若先展开，"环境变量未设置"的专项报错永远不命中，只会报
+	// 含糊的 "api_key 不能为空"。
 	if err := validateModelConfig(&cfg, profile); err != nil {
 		return nil, err
 	}
+	cfg.APIKey = expandEnv(cfg.APIKey)
 	return &cfg, nil
 }
 

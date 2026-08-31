@@ -22,8 +22,12 @@ func statePath() (string, error) {
 	return filepath.Join(dir, "self-update.json"), nil
 }
 
-// withStateLock 对 self-update.json 加文件锁，执行 fn 并返回结果。
+// withStateLock 对状态文件加锁执行 fn 并返回结果。
 // 用于防止多个 work 进程同时读写自更新状态文件导致竞争。
+// 锁加在旁路 .lock 文件而非 self-update.json 本身：状态文件在
+// saveCheckState 中被 rename 替换（换 inode），flock 绑定 inode，
+// 锁在被覆盖的旧 inode 上对新 open 的进程不再互斥，锁被架空。
+// 旁路锁文件自身从不被 rename/remove，inode 恒定。
 func withStateLock(fn func() error) error {
 	path, err := statePath()
 	if err != nil {
@@ -32,14 +36,15 @@ func withStateLock(fn func() error) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("创建自更新状态目录失败: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	lockPath := path + ".lock"
+	f, err := os.OpenFile(lockPath, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
-		return fmt.Errorf("打开自更新状态文件失败: %w", err)
+		return fmt.Errorf("打开自更新状态锁文件失败: %w", err)
 	}
 	defer f.Close()
 
-	if err := platform.FlockLock(f, path, platform.FlockEX); err != nil {
-		return fmt.Errorf("获取自更新状态文件独占锁失败: %w", err)
+	if err := platform.FlockLock(f, lockPath, platform.FlockEX); err != nil {
+		return fmt.Errorf("获取自更新状态锁失败: %w", err)
 	}
 	defer func() { _ = platform.FlockUnlock(f) }()
 
@@ -60,7 +65,11 @@ func loadCheckState() (checkState, error) {
 	}
 	var st checkState
 	if err := json.Unmarshal(data, &st); err != nil {
-		return checkState{}, fmt.Errorf("解析自更新状态文件失败: %w", err)
+		// 损坏的状态文件视为未检查（零值）：下一次 markChecked 会原子覆盖
+		// 修复该文件。上抛错误会让每条命令持续告警且自动更新被永久禁用
+		// （错误路径永远走不到 markChecked），且该文件只是节流记录，无
+		// 不可丢数据。
+		return checkState{}, nil
 	}
 	return st, nil
 }

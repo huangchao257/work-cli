@@ -42,6 +42,43 @@ func Normalize(v string) string {
 	return v
 }
 
+// IsSemantic 判断版本字符串是否为语义化版本（X.Y[.Z][-pre][+build]，至少两段数字）。
+// 非语义化（如 git describe --always 无 tag 时产出的短 SHA "1034545"）不应
+// 参与版本比较——调用方应视为 dev 构建跳过更新。要求至少两段：单段纯数字
+// 无法与短 SHA 区分，且项目发布版本从未使用过单段形式。
+func IsSemantic(v string) bool {
+	v = Normalize(v)
+	if v == "dev" {
+		return false
+	}
+	// 去掉 build 元数据与 prerelease
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if i := strings.IndexByte(v, '-'); i >= 0 {
+		v = v[:i]
+	}
+	if v == "" {
+		return false
+	}
+	// 核心必须是点分数字段，且至少两段（X.Y）
+	segs := strings.Split(v, ".")
+	if len(segs) < 2 {
+		return false
+	}
+	for _, seg := range segs {
+		if seg == "" {
+			return false
+		}
+		for _, r := range seg {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // splitPrerelease 将版本号拆分为核心版本号与预发布标识。
 func splitPrerelease(v string) (core, pre string) {
 	if i := strings.IndexByte(v, '-'); i >= 0 {

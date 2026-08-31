@@ -134,3 +134,28 @@ func TestCompareTransitive(t *testing.T) {
 		}
 	}
 }
+
+// TestIsSemantic 验证语义化版本判定：git describe 的纯数字 SHA 须判非语义化。
+func TestIsSemantic(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"v0.1.0", true},
+		{"1.2.3", true},
+		{"1.2", true},
+		{"1", false}, // 单段：无法与短 SHA 区分
+		{"v1.2.3-beta.1+build.5", true},
+		{"", false},
+		{"dev", false},
+		{"1034545", false}, // git describe --always 的纯数字短 SHA
+		{"0.1.0-abc123", true},
+		{"abc123", false},
+		{"1.2.x", false},
+	}
+	for _, tc := range cases {
+		if got := IsSemantic(tc.in); got != tc.want {
+			t.Errorf("IsSemantic(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}

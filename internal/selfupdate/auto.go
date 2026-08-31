@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/huangchao257/work-cli/internal/semver"
 )
 
 type AutoOptions struct {
@@ -24,7 +26,14 @@ type AutoResult struct {
 
 // ShouldAutoUpdate 判断是否应在本次启动时尝试自动更新。
 func ShouldAutoUpdate(currentVersion string, cfg Config) bool {
-	if strings.TrimSpace(currentVersion) == "" || currentVersion == "dev" {
+	v := strings.TrimSpace(currentVersion)
+	if v == "" || v == "dev" {
+		return false
+	}
+	// 开发构建版本（如 git describe --always 在无 tag 仓库产出的纯数字
+	// 短 SHA "1034545"）不是语义化版本：normalizeTag 补 v 前缀后会被比较
+	// 为超大版本号，自动更新静默失效且拒绝降级安装。视为 dev 跳过。
+	if !semver.IsSemantic(v) {
 		return false
 	}
 	return cfg.Enabled
