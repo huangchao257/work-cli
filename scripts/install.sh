@@ -74,16 +74,20 @@ install_binary() {
   if curl -fsSL "$checksum_url" -o "$tmp/checksums.txt" 2>/dev/null; then
     local want have
     want="$(grep -F "$(basename "$url")" "$tmp/checksums.txt" | awk '{print $1}')"
-    if [ -n "$want" ]; then
-      need_cmd sha256sum
-      have="$(sha256sum "$tmp/work.tar.gz" | awk '{print $1}')"
-      [ "$have" = "$want" ] || err "校验和不匹配（期望 $want，实际 $have），拒绝安装"
-      log "校验和验证通过"
+    [ -n "$want" ] || err "checksums.txt 中未找到 $(basename "$url")，拒绝安装"
+    local hash_cmd
+    if command -v sha256sum >/dev/null 2>&1; then
+      hash_cmd="sha256sum"
+    elif command -v shasum >/dev/null 2>&1; then
+      hash_cmd="shasum -a 256"
     else
-      log "警告: checksums.txt 中未找到 $(basename "$url")，跳过校验"
+      err "未找到 sha256sum 或 shasum"
     fi
+    have="$($hash_cmd "$tmp/work.tar.gz" | awk '{print $1}')"
+    [ "$have" = "$want" ] || err "校验和不匹配（期望 $want，实际 $have），拒绝安装"
+    log "校验和验证通过"
   else
-    log "警告: 无法下载 checksums.txt，跳过校验"
+    err "无法下载 checksums.txt，拒绝安装"
   fi
 
   tar -xzf "$tmp/work.tar.gz" -C "$tmp"

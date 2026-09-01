@@ -5,8 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -27,12 +30,21 @@ func SyncWithContext(ctx context.Context, cfg TelemetryConfig) error {
 
 // syncWithContext 是 Sync 的 context 变体，允许调用方在超时时取消 HTTP 请求。
 func syncWithContext(ctx context.Context, cfg TelemetryConfig) error {
-	if cfg.URL == "" {
-		return fmt.Errorf("未配置 telemetry.url")
+	if err := validateTelemetryURL(cfg.URL); err != nil {
+		return err
 	}
 	if cfg.Enabled == nil || !*cfg.Enabled {
 		return fmt.Errorf("telemetry 已禁用")
 	}
+
+	// 先清理重试超限事件：超过 max_retries 的事件写 dead_letter.jsonl 后
+	// 从队列移除，避免无限重试与队列无界增长（对齐设计文档第 8 节）。
+	// 必须在 ReadPending 之前执行——超限事件往往带未到期的 RetryAfter，
+	// ReadPending 会将其过滤，导致队列“空”判断提前返回、清理永远不触发。
+	// 清理失败不阻塞同步：队列数据未损坏，下次 sync 会再次尝试。
+	// MaxRetries <= 0 视为默认 10（与 defaultTelemetryConfig 一致）。
+	_, _ = DropFailed(maxRetriesValue(cfg))
+
 	pending, err := ReadPending()
 	if err != nil {
 		return fmt.Errorf("读取待上报队列失败: %w", err)
@@ -116,7 +128,18 @@ func uploadBatchWithContext(ctx context.Context, cfg TelemetryConfig, batch []Qu
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if err := validateTelemetryURL(req.URL.String()); err != nil {
+				return err
+			}
+			if len(via) >= 10 {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("发送 telemetry 请求失败: %w", err)
@@ -140,6 +163,37 @@ func ShouldAutoSync(cfg TelemetryConfig) bool {
 		return true
 	}
 	return time.Since(*st.LastSync) >= cfg.SyncIntervalDuration()
+}
+
+// maxRetriesValue 归一化重试上限：<=0 时回退默认 10
+// （与 defaultTelemetryConfig 保持一致；mergeTelemetryConfig 不接受非正值）。
+func maxRetriesValue(cfg TelemetryConfig) int {
+	if cfg.MaxRetries > 0 {
+		return cfg.MaxRetries
+	}
+	return 10
+}
+
+func validateTelemetryURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return fmt.Errorf("未配置 telemetry.url")
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("telemetry.url 不是有效 URL")
+	}
+	if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
+		return fmt.Errorf("telemetry.url 必须使用 HTTPS")
+	}
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func clientVersion() string {

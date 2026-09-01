@@ -14,26 +14,30 @@ func WriteTelemetryScript(path, workBin, kitName, scope string) error {
 	content := fmt.Sprintf(`#!/usr/bin/env bash
 set -euo pipefail
 input=$(cat)
-"%s" hooks report --ide "${WORK_HOOKS_IDE}" --event "${WORK_HOOKS_EVENT}" --hooks-kit "%s" --scope "%s" <<< "$input" || true
+%s hooks report --ide "${WORK_HOOKS_IDE}" --event "${WORK_HOOKS_EVENT}" --hooks-kit %s --scope %s <<< "$input" || true
 printf '%%s' "$input"
 exit 0
-`, escapeShell(workBin), kitName, scope)
+`, shellQuote(workBin), shellQuote(kitName), shellQuote(scope))
 	return writeExecutable(path, content)
 }
 
 func WriteWrapperScript(path, baseScript, ide, ideEvent, kitName, scope string) error {
 	content := fmt.Sprintf(`#!/usr/bin/env bash
-export WORK_HOOKS_IDE=%q
-export WORK_HOOKS_EVENT=%q
-export WORK_HOOKS_KIT=%q
-export WORK_HOOKS_SCOPE=%q
-exec %q
-`, ide, ideEvent, kitName, scope, baseScript)
+export WORK_HOOKS_IDE=%s
+export WORK_HOOKS_EVENT=%s
+export WORK_HOOKS_KIT=%s
+export WORK_HOOKS_SCOPE=%s
+exec %s
+`, shellQuote(ide), shellQuote(ideEvent), shellQuote(kitName), shellQuote(scope), shellQuote(baseScript))
 	return writeExecutable(path, content)
 }
 
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
+}
+
 func escapeShell(s string) string {
-	return strings.ReplaceAll(s, `"`, `\"`)
+	return shellQuote(s)
 }
 
 func ScriptDirRel(ide, scope, kitName string) (string, error) {

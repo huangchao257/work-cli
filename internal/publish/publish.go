@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,7 +50,28 @@ func usageError(format string, args ...any) error {
 	return usage.Wrapf(format, args...)
 }
 
-// checksumError 表示校验和文件为空或与归档不一致。
+func validateRegistryURL(raw string) error {
+	if strings.TrimSpace(raw) == "" {
+		return usageError("未配置 registry.url，请在 ~/.work/config.yaml 中设置")
+	}
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return usageError("registry.url 不是有效 URL")
+	}
+	if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
+		return usageError("registry.url 必须使用 HTTPS")
+	}
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 type checksumError struct {
 	want string
 	got  string
@@ -102,8 +125,8 @@ func Run(opts Options) (Result, error) {
 	}
 
 	// 4. registry.url 必须配置
-	if strings.TrimSpace(opts.RegistryURL) == "" {
-		return Result{}, usageError("未配置 registry.url，请在 ~/.work/config.yaml 中设置")
+	if err := validateRegistryURL(opts.RegistryURL); err != nil {
+		return Result{}, err
 	}
 	target := strings.TrimRight(opts.RegistryURL, "/") + "/bundles"
 

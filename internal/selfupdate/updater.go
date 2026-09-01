@@ -6,17 +6,21 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 )
+
+const maxAssetSize = 200 << 20
 
 type CheckResult struct {
 	Current         string `json:"current"`
@@ -50,11 +54,40 @@ func NewUpdater(currentVersion string) *Updater {
 		CurrentVersion: currentVersion,
 		Repo:           DefaultRepo,
 		Channel:        "stable",
-		HTTPClient:     &http.Client{Timeout: 120 * time.Second},
-		Executable:     os.Executable,
+		HTTPClient: &http.Client{
+			Timeout: 120 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if err := validateAssetURL(req.URL.String()); err != nil {
+					return err
+				}
+				if len(via) >= 10 {
+					return http.ErrUseLastResponse
+				}
+				return nil
+			},
+		},
+		Executable: os.Executable,
 	}
 }
 
+func validateAssetURL(raw string) error {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Host == "" {
+		return fmt.Errorf("更新资产 URL 无效")
+	}
+	if u.Scheme != "https" && !isLoopbackHost(u.Hostname()) {
+		return fmt.Errorf("更新资产 URL 必须使用 HTTPS")
+	}
+	return nil
+}
+
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 func (u *Updater) repo() string {
 	if strings.TrimSpace(u.Repo) == "" {
 		return DefaultRepo
@@ -144,6 +177,11 @@ func (u *Updater) Upgrade(ctx context.Context, opts UpgradeOptions) (*CheckResul
 	if err != nil {
 		return nil, fmt.Errorf("下载安装包失败: %w", err)
 	}
+	// 校验下载内容与 Release 附带的 checksums.txt 一致后才能动可执行文件。
+	// 归档经公网 CDN 分发，无校验则 MITM/CDN 污染会直接落盘执行。
+	if err := u.verifyAssetChecksum(ctx, info, asset.Name, data); err != nil {
+		return nil, fmt.Errorf("校验安装包失败: %w", err)
+	}
 	binData, err := extractBinary(asset.Name, data)
 	if err != nil {
 		return nil, fmt.Errorf("解压二进制失败: %w", err)
@@ -188,9 +226,71 @@ func downloadAsset(ctx context.Context, client *http.Client, url string) ([]byte
 	return nil, fmt.Errorf("下载安装包失败（已重试 %d 次）: %w", maxRetries, lastErr)
 }
 
+// verifyAssetChecksum 下载 Release 附带的 checksums.txt，校验资产内容一致。
+// checksums.txt 为 goreleaser 默认产物（.goreleaser.yaml checksum.name_template），
+// 每行格式 "<sha256 hex>  <文件名>"。缺少 checksums.txt 资产或其中无该资产条目
+// 均拒绝更新——校验缺失时静默跳过等于把完整性保证降级为可选。
+func (u *Updater) verifyAssetChecksum(ctx context.Context, info *releaseInfo, assetName string, data []byte) error {
+	if info == nil {
+		return fmt.Errorf("Release 信息缺失，无法校验")
+	}
+	var checksumURL string
+	for _, asset := range info.Assets {
+		if asset.Name == checksumsAssetName {
+			checksumURL = asset.URL
+			break
+		}
+	}
+	if checksumURL == "" {
+		return fmt.Errorf("Release 未提供 %s，拒绝更新", checksumsAssetName)
+	}
+
+	body, err := downloadAsset(ctx, u.HTTPClient, checksumURL)
+	if err != nil {
+		return fmt.Errorf("下载 %s 失败: %w", checksumsAssetName, err)
+	}
+
+	want, err := findChecksumEntry(body, assetName)
+	if err != nil {
+		return err
+	}
+
+	got := fmt.Sprintf("%x", sha256.Sum256(data))
+	if !strings.EqualFold(got, want) {
+		return fmt.Errorf("校验和不匹配: 期望 %s，实际 %s", want, got)
+	}
+	return nil
+}
+
+const checksumsAssetName = "checksums.txt"
+
+// findChecksumEntry 从 checksums.txt 内容中解析指定文件的 sha256。
+// 按行扫描，取第一段 hex 摘要并用第二段（或最后一个字段）匹配文件名；
+// 兼容 "hex  name"（两个空格）与 "hex name"（shasum 兼容格式）。
+func findChecksumEntry(checksums []byte, assetName string) (string, error) {
+	for _, line := range strings.Split(string(checksums), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		sum, name := fields[0], fields[len(fields)-1]
+		if name == assetName {
+			return strings.ToLower(sum), nil
+		}
+	}
+	return "", fmt.Errorf("%s 中未找到 %s 条目，拒绝更新", checksumsAssetName, assetName)
+}
+
 // downloadAssetOnce 执行单次下载，带 Content-Length 校验。
-func downloadAssetOnce(ctx context.Context, client *http.Client, url string) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func downloadAssetOnce(ctx context.Context, client *http.Client, assetURL string) ([]byte, error) {
+	if err := validateAssetURL(assetURL); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -208,6 +308,9 @@ func downloadAssetOnce(ctx context.Context, client *http.Client, url string) ([]
 	}
 
 	// 如果响应包含 Content-Length，用于预分配缓冲区并校验完整性
+	if resp.ContentLength > maxAssetSize {
+		return nil, fmt.Errorf("更新资产过大: %d 字节（上限 %d）", resp.ContentLength, maxAssetSize)
+	}
 	var data []byte
 	if cl := resp.ContentLength; cl > 0 {
 		data = make([]byte, 0, cl)
@@ -216,6 +319,9 @@ func downloadAssetOnce(ctx context.Context, client *http.Client, url string) ([]
 			n, readErr := resp.Body.Read(buf)
 			if n > 0 {
 				data = append(data, buf[:n]...)
+				if len(data) > maxAssetSize {
+					return nil, fmt.Errorf("更新资产超过 %d 字节上限", maxAssetSize)
+				}
 			}
 			if readErr == io.EOF {
 				break
@@ -230,10 +336,13 @@ func downloadAssetOnce(ctx context.Context, client *http.Client, url string) ([]
 		return data, nil
 	}
 
-	// 无 Content-Length 时回退到 ReadAll
-	data, err = io.ReadAll(resp.Body)
+	// 无 Content-Length 时通过 LimitReader 限制最大读取量。
+	data, err = io.ReadAll(io.LimitReader(resp.Body, maxAssetSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("读取下载数据失败: %w", err)
+	}
+	if len(data) > maxAssetSize {
+		return nil, fmt.Errorf("更新资产超过 %d 字节上限", maxAssetSize)
 	}
 	return data, nil
 }

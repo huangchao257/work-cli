@@ -362,7 +362,12 @@ var apiRefreshCmd = &cobra.Command{
 
 // --- remove ---
 
-var apiRemoveYes bool
+// apiRemoveState 是 remove 命令的 flag 存储。
+// yes 读后即清（take 语义同 callFlags）：防同进程多次 Execute 时
+// --yes 残留跳过后续删除确认。
+var apiRemoveState = struct {
+	yes bool
+}{}
 
 var apiRemoveCmd = &cobra.Command{
 	Use:           "remove <system>",
@@ -371,6 +376,9 @@ var apiRemoveCmd = &cobra.Command{
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// 入口快照并清零：提前失败（系统不存在）路径同样不残留 --yes
+		yes := apiRemoveState.yes
+		apiRemoveState.yes = false
 		name := args[0]
 		if !api.SystemExists(name) {
 			if _, ok := api.DefaultRegistry.ByName(name); ok {
@@ -382,7 +390,7 @@ var apiRemoveCmd = &cobra.Command{
 			fmt.Fprintf(cmd.OutOrStdout(), "预览删除系统 %s\n", name)
 			return nil
 		}
-		if !apiRemoveYes {
+		if !yes {
 			confirmed := false
 			if stat, err := os.Stdin.Stat(); err == nil && stat.Mode()&os.ModeCharDevice != 0 {
 				fmt.Fprintf(cmd.OutOrStdout(), "将删除系统 %s 的全部本地数据（规范、目录、配置），确认？[y/N] ", name)
@@ -418,5 +426,5 @@ func init() {
 	apiImportCmd.Flags().StringVar(&apiImportAuthHeader, "auth-header", "", "apikey 模式的 header 名（默认 X-API-Key）")
 	apiImportCmd.Flags().StringVar(&apiImportAuthQuery, "auth-query", "", "apikey 模式的 query 参数名（与 header 二选一）")
 	apiImportCmd.Flags().BoolVar(&apiImportOverwrite, "overwrite", false, "覆盖已存在的同名系统")
-	apiRemoveCmd.Flags().BoolVar(&apiRemoveYes, "yes", false, "跳过删除确认")
+	apiRemoveCmd.Flags().BoolVar(&apiRemoveState.yes, "yes", false, "跳过删除确认")
 }

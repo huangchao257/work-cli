@@ -18,13 +18,48 @@ import (
 	"github.com/huangchao257/work-cli/internal/usage"
 )
 
-var (
-	apiCallParams []string
-	apiCallSet    []string
-	apiCallData   string
-	apiCallHeader []string
-	apiCallYes    bool
-)
+// callFlags 承载调用类 flag（--yes/--data/--set/--params/--header）的当前值。
+// 每个命令实例（L3 单例、L1 shortcut、L2 动态叶子）各自持有一份，
+// 互不共享，杜绝跨命令类型的 flag 状态污染。
+type callFlags struct {
+	params []string
+	set    []string
+	data   string
+	header []string
+	yes    bool
+}
+
+// bindCallFlags 将调用类 flag 绑定到指定的 callFlags 存储。
+// 绑定目标随命令实例隔离，而非包级共享变量。
+func bindCallFlags(cmd *cobra.Command, f *callFlags) {
+	cmd.Flags().StringArrayVar(&f.params, "params", nil, "query 参数 JSON 对象（可重复，后者覆盖前者）")
+	cmd.Flags().StringArrayVar(&f.set, "set", nil, "单个参数 k=v（k 可带 query./header. 前缀）")
+	cmd.Flags().StringVar(&f.data, "data", "", "请求体 JSON（- stdin，@file 相对路径）")
+	cmd.Flags().StringArrayVar(&f.header, "header", nil, "附加 header k=v")
+	cmd.Flags().BoolVar(&f.yes, "yes", false, "跳过写操作确认")
+}
+
+// take 快照当前值并把存储清零。
+// 必须在 RunE 入口（任何可能失败的参数处理之前）调用：
+//   - pflag 不重置未出现的 flag，同进程多次 Execute 时上次写入会残留，
+//     --yes 残留可绕过确认门禁，读后即清将其还原为单次语义；
+//   - pflag stringArray 的 changed 标记跨 Execute 不复位，二次 --set 会
+//     append 到旧值，清零后 append 落在空 slice 上，等价于覆盖语义。
+//
+// 放在入口而非参数校验之后，保证提前失败（如未知系统、--set 格式错误）
+// 的路径同样不残留。
+func (f *callFlags) take() callFlags {
+	snapshot := *f
+	f.yes = false
+	f.data = ""
+	f.params = nil
+	f.set = nil
+	f.header = nil
+	return snapshot
+}
+
+// apiCallState 是 L3 通用调用命令的 flag 存储（单例命令，独立于动态命令）。
+var apiCallState = &callFlags{}
 
 var apiCallCmd = &cobra.Command{
 	Use:   "call <system> <operation>",
@@ -48,21 +83,18 @@ METHOD PATH 支持两种形式：引号整体传入（"GET /pets"）或拆成两
 	SilenceErrors: true,
 	SilenceUsage:  true,
 	RunE: func(cmd *cobra.Command, args []string) error {
+		flags := apiCallState.take()
 		operation := args[1]
 		if len(args) == 3 {
 			// work api call <system> <METHOD> <PATH>
 			operation = strings.ToUpper(args[1]) + " " + args[2]
 		}
-		return runAPICall(cmd, args[0], operation)
+		return runAPICall(cmd, args[0], operation, flags)
 	},
 }
 
 func init() {
-	apiCallCmd.Flags().StringArrayVar(&apiCallParams, "params", nil, "query 参数 JSON 对象（可重复，后者覆盖前者）")
-	apiCallCmd.Flags().StringArrayVar(&apiCallSet, "set", nil, "单个参数 k=v（k 可带 query./header. 前缀）")
-	apiCallCmd.Flags().StringVar(&apiCallData, "data", "", "请求体 JSON（- stdin，@file 相对路径）")
-	apiCallCmd.Flags().StringArrayVar(&apiCallHeader, "header", nil, "附加 header k=v")
-	apiCallCmd.Flags().BoolVar(&apiCallYes, "yes", false, "跳过写操作确认")
+	bindCallFlags(apiCallCmd, apiCallState)
 }
 
 // mergeCallParams 合并 --params JSON 与 --set 键值对，显式 --set 优先。
@@ -177,7 +209,8 @@ func parseCallHeaders(headers []string) (map[string]string, error) {
 }
 
 // runAPICall 是 L3 调用入口（也被动态命令复用）。
-func runAPICall(cmd *cobra.Command, systemName, operation string) error {
+// flags 为 RunE 入口快照（take() 已清零存储，残留不影响后续 Execute）。
+func runAPICall(cmd *cobra.Command, systemName, operation string, flags callFlags) error {
 	deps := defaultAPIDeps()
 	s, cfg, err := deps.findSystem(systemName)
 	if err != nil {
@@ -188,27 +221,23 @@ func runAPICall(cmd *cobra.Command, systemName, operation string) error {
 		authCfg = cfg.Auth
 	}
 
-	params, err := mergeCallParams(apiCallParams, apiCallSet)
+	params, err := mergeCallParams(flags.params, flags.set)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	data, err := readCallData(apiCallData)
+	data, err := readCallData(flags.data)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	headers, err := parseCallHeaders(apiCallHeader)
+	headers, err := parseCallHeaders(flags.header)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	yes := apiCallYes
-	// 包级 flag 变量读后即清，防同进程多次 Execute 时 --yes/--data 残留
-	// 绕过后续调用的确认门禁（pflag 不重置未出现的 flag）
-	resetCallFlagState()
 
 	opts := api.CallOptions{
 		System: systemName, Operation: operation,
 		Params: params, Headers: headers, Body: data,
-		Yes: yes, DryRun: dryRun,
+		Yes: flags.yes, DryRun: dryRun,
 		Confirm:    confirmTTY(cmd),
 		AuthConfig: authCfg, Timeout: apiTimeout(),
 	}
@@ -217,15 +246,6 @@ func runAPICall(cmd *cobra.Command, systemName, operation string) error {
 		return apiErrorToExit(cmd, err)
 	}
 	return renderCallResult(cmd, result)
-}
-
-// resetCallFlagState 清零调用类包级 flag 变量（读取后调用）。
-func resetCallFlagState() {
-	apiCallYes = false
-	apiCallData = ""
-	apiCallParams = nil
-	apiCallSet = nil
-	apiCallHeader = nil
 }
 
 // confirmTTY 构造交互式确认函数；非 TTY 返回 nil（fail-closed 由 Call 层兜底）。

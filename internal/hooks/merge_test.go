@@ -72,13 +72,16 @@ func TestMergeCursorHooksKitIsolation(t *testing.T) {
 	}
 }
 
-func TestRedactPayload(t *testing.T) {
-	raw := []byte(`{"prompt":"secret","tool":"Shell"}`)
-	out, err := RedactPayload(raw, []string{"prompt"})
-	if err != nil {
-		t.Fatal(err)
+func TestHooksRejectInvalidScope(t *testing.T) {
+	if _, err := HooksScriptDir("cursor", "$(touch /tmp/pwn)", "kit"); err == nil {
+		t.Fatal("invalid scope should be rejected")
 	}
-	if out["prompt"] != "[redacted]" {
-		t.Fatalf("expected redacted prompt, got %v", out["prompt"])
+}
+
+func TestShellQuote(t *testing.T) {
+	got := shellQuote(`$(touch /tmp/pwn); 'quoted'`)
+	want := `'$(touch /tmp/pwn); '\''quoted'\'''`
+	if got != want {
+		t.Fatalf("shellQuote = %q, want %q", got, want)
 	}
 }

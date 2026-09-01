@@ -98,22 +98,20 @@ L3  work api call %s <op|METHOD PATH> 通用调用
 func newShortcutCmd(s api.System, cfg *api.SystemConfig, catalog *api.CatalogAlias, sc api.Shortcut) *cobra.Command {
 	name := strings.TrimPrefix(sc.Name, "+")
 	risk := api.EffectiveShortcutRisk(catalog, sc)
+	// 每个命令实例独立 flag 存储：与其他 shortcut / L2 / L3 互不污染
+	flags := &callFlags{}
 	cmd := &cobra.Command{
 		Use:     "+" + name,
 		Short:   firstNonEmpty(sc.Description, "快捷方式 "+sc.Target),
 		Aliases: []string{name},
 		Hidden:  false,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAPIShortcut(cmd, s, cfg, sc)
+			return runAPIShortcut(cmd, s, cfg, sc, flags.take())
 		},
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	cmd.Flags().BoolVar(&apiCallYes, "yes", false, "跳过写操作确认")
-	cmd.Flags().StringVar(&apiCallData, "data", "", "请求体 JSON（- stdin，@file 相对路径）")
-	cmd.Flags().StringArrayVar(&apiCallSet, "set", nil, "单个参数 k=v")
-	cmd.Flags().StringArrayVar(&apiCallParams, "params", nil, "query 参数 JSON 对象")
-	cmd.Flags().StringArrayVar(&apiCallHeader, "header", nil, "附加 header k=v")
+	bindCallFlags(cmd, flags)
 	if risk != api.RiskRead {
 		cmd.Short = fmt.Sprintf("%s（风险 %s）", cmd.Short, risk)
 	}
@@ -121,7 +119,8 @@ func newShortcutCmd(s api.System, cfg *api.SystemConfig, catalog *api.CatalogAli
 }
 
 // runAPIShortcut 执行快捷方式：先做统一风险门禁，再进入编排/合并参数逻辑。
-func runAPIShortcut(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, sc api.Shortcut) error {
+// flags 为 RunE 入口快照（take() 已清零存储，残留不影响后续 Execute）。
+func runAPIShortcut(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, sc api.Shortcut, flags callFlags) error {
 	catalog, err := s.Catalog(cmd.Context())
 	if err != nil {
 		return apiFail(cmd, fmt.Errorf("读取系统目录失败: %w", err))
@@ -132,21 +131,19 @@ func runAPIShortcut(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, sc 
 	if cfg != nil {
 		authCfg = cfg.Auth
 	}
-	params, err := mergeCallParams(apiCallParams, apiCallSet)
+	params, err := mergeCallParams(flags.params, flags.set)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	data, err := readCallData(apiCallData)
+	data, err := readCallData(flags.data)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	headers, err := parseCallHeaders(apiCallHeader)
+	headers, err := parseCallHeaders(flags.header)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	yes := apiCallYes
-	// 包级 flag 变量读后即清（防同进程多次 Execute 残留绕过确认门禁）
-	resetCallFlagState()
+	yes := flags.yes
 
 	opts := api.CallOptions{
 		System: s.Manifest().Name, Operation: sc.Target,
@@ -169,7 +166,6 @@ func runAPIShortcut(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, sc 
 	}
 
 	// 统一风险门禁（handler 型 shortcut 无法预览请求，同样 fail-closed）
-	// 注意用局部 yes（resetCallFlagState 已清零包级 apiCallYes）
 	if api.Confirmable(risk) && !yes {
 		confirmed := false
 		if opts.Confirm != nil {
@@ -260,21 +256,19 @@ func attachOperationCmd(systemCmd *cobra.Command, s api.System, cfg *api.SystemC
 	if op.Risk != "read" {
 		short = fmt.Sprintf("%s（风险 %s）", short, op.Risk)
 	}
+	// 每个叶子命令独立 flag 存储：与其他叶子 / L1 / L3 互不污染
+	callState := &callFlags{}
 	cmd := &cobra.Command{
 		Use:   leafName,
 		Short: short,
 		Args:  cobra.NoArgs, // 多余位置参数多为拼错的子命令，静默丢弃会执行错误操作
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDynamicOperation(cmd, s, cfg, op, operationRef)
+			return runDynamicOperation(cmd, s, cfg, op, operationRef, callState.take())
 		},
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
-	cmd.Flags().BoolVar(&apiCallYes, "yes", false, "跳过写操作确认")
-	cmd.Flags().StringVar(&apiCallData, "data", "", "请求体 JSON（- stdin，@file 相对路径）")
-	cmd.Flags().StringArrayVar(&apiCallSet, "set", nil, "单个参数 k=v")
-	cmd.Flags().StringArrayVar(&apiCallParams, "params", nil, "query 参数 JSON 对象")
-	cmd.Flags().StringArrayVar(&apiCallHeader, "header", nil, "附加 header k=v")
+	bindCallFlags(cmd, callState)
 
 	// 类型化 flags：从目录元数据生成
 	for _, p := range op.Parameters {
@@ -304,12 +298,13 @@ func attachOperationCmd(systemCmd *cobra.Command, s api.System, cfg *api.SystemC
 }
 
 // runDynamicOperation 执行 L2 动态命令：类型化 flag → 参数合并 → 统一 Call。
-func runDynamicOperation(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, op *api.CatalogOperationAlias, operationRef string) error {
+// flags 为 RunE 入口快照（take() 已清零存储，残留不影响后续 Execute）。
+func runDynamicOperation(cmd *cobra.Command, s api.System, cfg *api.SystemConfig, op *api.CatalogOperationAlias, operationRef string, flags callFlags) error {
 	var authCfg api.AuthConfig
 	if cfg != nil {
 		authCfg = cfg.Auth
 	}
-	params, err := mergeCallParams(apiCallParams, apiCallSet)
+	params, err := mergeCallParams(flags.params, flags.set)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
@@ -325,17 +320,15 @@ func runDynamicOperation(cmd *cobra.Command, s api.System, cfg *api.SystemConfig
 			delete(params, p.Name)
 		}
 	}
-	data, err := readCallData(apiCallData)
+	data, err := readCallData(flags.data)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	headers, err := parseCallHeaders(apiCallHeader)
+	headers, err := parseCallHeaders(flags.header)
 	if err != nil {
 		return apiFail(cmd, err)
 	}
-	yes := apiCallYes
-	// 包级 flag 变量读后即清（防同进程多次 Execute 残留绕过确认门禁）
-	resetCallFlagState()
+	yes := flags.yes
 
 	opts := api.CallOptions{
 		System: s.Manifest().Name, Operation: operationRef,

@@ -170,6 +170,13 @@ func TestRun_DryRun_EmptyRegistryURL_UsageError(t *testing.T) {
 	}
 }
 
+func TestRun_DryRun_NonHTTPSRegistry_UsageError(t *testing.T) {
+	archive, checksum := makePubkitArchive(t)
+	_, err := Run(Options{Archive: archive, Checksum: checksum, DryRun: true, RegistryURL: "http://registry.example.com"})
+	if err == nil || !IsUsageError(err) {
+		t.Fatalf("non-HTTPS RegistryURL should be UsageError, got %v", err)
+	}
+}
 func TestRun_DryRun_WithRegistry(t *testing.T) {
 	archive, checksum := makePubkitArchive(t)
 	res, err := Run(Options{

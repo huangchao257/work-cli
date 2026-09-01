@@ -56,17 +56,16 @@ func newTestAPICmd(t *testing.T) (*cobra.Command, *bytes.Buffer) {
 	return cmd, buf
 }
 
-// resetAPIFlagState 重置 api 子树绑定的全部包级 flag 变量到默认值。
+// resetAPIFlagState 重置 api 子树绑定的全部可变 flag 状态到默认值。
 // singleton 子命令的 flag 只注册一次，pflag 在多次 Execute 间不复位旧值；
 // 不重置则先跑的测试会把 --base-url/--auth/--yes 等状态泄漏给后续测试。
+// 调用类 flag（--yes/--data/--set/...）已按命令实例隔离（callFlags），
+// 此处重置 L3 单例 apiCallState 的存储即可；L1/L2 动态命令的存储随
+// newTestAPICmd 每次重建，天然隔离。
 func resetAPIFlagState() {
 	asJSON = false
 	dryRun = false
-	apiCallYes = false
-	apiCallData = ""
-	apiCallParams = nil
-	apiCallSet = nil
-	apiCallHeader = nil
+	apiCallState.take()
 	apiImportBaseURL = ""
 	apiImportAuthKind = ""
 	apiImportCredEnv = ""
@@ -75,7 +74,7 @@ func resetAPIFlagState() {
 	apiImportOverwrite = false
 	apiSchemaCompact = false
 	apiSchemaAll = false
-	apiRemoveYes = false
+	apiRemoveState.yes = false
 }
 
 func TestAPICloneListIncludesDemo(t *testing.T) {

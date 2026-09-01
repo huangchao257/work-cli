@@ -33,6 +33,9 @@ func ideHooksBase(ide, scope string) (string, error) {
 	if info == nil {
 		return "", fmt.Errorf("未知 IDE: %s", ide)
 	}
+	if scope != "user" && scope != "project" {
+		return "", fmt.Errorf("未知 hooks scope %q（支持 user 或 project）", scope)
+	}
 	if scope == "project" {
 		root, err := platform.ProjectRoot()
 		if err != nil {

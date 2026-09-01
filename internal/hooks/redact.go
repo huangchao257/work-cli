@@ -63,10 +63,14 @@ func redactPath(cur map[string]any, parts []string) {
 	switch v := next.(type) {
 	case map[string]any:
 		redactPath(v, parts[1:])
+	case []any:
+		for _, item := range v {
+			if m, ok := item.(map[string]any); ok {
+				redactPath(m, parts[1:])
+			}
+		}
 	case map[interface{}]interface{}:
 		// YAML解析可能产生 map[interface{}]interface{}，转为 map[string]any。
-		// 不使用 sync.Pool：池化的 map 被赋值给 cur[key] 后再 Put 回池，
-		// 后续 Get 会复用同一 map 并清空它，导致调用方仍引用的结果被静默清空。
 		m := make(map[string]any, len(v))
 		for k, val := range v {
 			if ks, ok := k.(string); ok {
@@ -78,11 +82,11 @@ func redactPath(cur map[string]any, parts []string) {
 	}
 }
 
-// truncateStringsIter 使用显式栈迭代遍历嵌套 map，避免深层递归带来的栈帧分配。
+// truncateStringsIter 使用显式栈迭代遍历嵌套 map 和数组，避免深层递归带来的栈帧分配。
 func truncateStringsIter(root map[string]any, max int) {
-	// 栈元素：当前 map 及其待遍历 key 的索引
 	type frame struct {
 		m    map[string]any
+		a    []any
 		keys []string
 		i    int
 	}
@@ -90,28 +94,47 @@ func truncateStringsIter(root map[string]any, max int) {
 
 	for len(stack) > 0 {
 		top := &stack[len(stack)-1]
-		if top.keys == nil {
-			// 收集当前 map 的所有 key
-			top.keys = make([]string, 0, len(top.m))
-			for k := range top.m {
-				top.keys = append(top.keys, k)
+		if top.m != nil {
+			if top.keys == nil {
+				top.keys = make([]string, 0, len(top.m))
+				for k := range top.m {
+					top.keys = append(top.keys, k)
+				}
 			}
+			if top.i >= len(top.keys) {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			k := top.keys[top.i]
+			top.i++
+			v := top.m[k]
+			switch t := v.(type) {
+			case string:
+				if len(t) > max {
+					top.m[k] = truncateUTF8(t, max)
+				}
+			case map[string]any:
+				stack = append(stack, frame{m: t})
+			case []any:
+				stack = append(stack, frame{a: t})
+			}
+			continue
 		}
-		if top.i >= len(top.keys) {
-			// 当前 map 遍历完成
+		if top.i >= len(top.a) {
 			stack = stack[:len(stack)-1]
 			continue
 		}
-		k := top.keys[top.i]
+		idx := top.i
 		top.i++
-		v := top.m[k]
-		switch t := v.(type) {
+		switch t := top.a[idx].(type) {
 		case string:
 			if len(t) > max {
-				top.m[k] = truncateUTF8(t, max)
+				top.a[idx] = truncateUTF8(t, max)
 			}
 		case map[string]any:
 			stack = append(stack, frame{m: t})
+		case []any:
+			stack = append(stack, frame{a: t})
 		}
 	}
 }

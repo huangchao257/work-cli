@@ -177,6 +177,164 @@ func RecordSyncError(eventID, msg string, retryAfter time.Time) error {
 	})
 }
 
+// DropFailed 在事件重试次数达到 maxRetries 时将其标记为彻底失败：
+// 写入 dead_letter.jsonl 后从队列移除，避免事件被无限重试、队列无界增长。
+// 无法解析的行原样保留（由 rewriteQueue 兜底）。返回被移除的事件数。
+// 该语义对齐设计文档 docs/design/modules/hooks.md 第 8 节：
+// 超过 max_retries 的事件跳过上报并写 dead_letter.jsonl。
+func DropFailed(maxRetries int) (int, error) {
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
+	deadPath, err := DeadLetterPath()
+	if err != nil {
+		return 0, err
+	}
+	// dead_letter.jsonl 也持队列旁路锁：与 AppendQueue/rewriteQueue 互斥，
+	// 避免并发 append 与本函数的移除重写交错丢失数据。
+	var dropped int
+	err = withQueueLock(func() error {
+		lines, err := readQueueLines()
+		if err != nil {
+			return err
+		}
+		var kept [][]byte
+		var dead [][]byte
+		for _, line := range lines {
+			if len(line) == 0 {
+				continue
+			}
+			var e QueueEntry
+			if err := json.Unmarshal(line, &e); err != nil {
+				kept = append(kept, line) // 无法解析的行原样保留
+				continue
+			}
+			if e.UploadedAt == nil && e.RetryCount >= maxRetries && e.RetryCount > 0 {
+				dead = append(dead, line)
+				continue
+			}
+			kept = append(kept, line)
+		}
+		if len(dead) == 0 {
+			return nil
+		}
+		if err := appendLines(deadPath, dead); err != nil {
+			return fmt.Errorf("写入死信队列失败: %w", err)
+		}
+		if err := replaceQueueLines(kept); err != nil {
+			return fmt.Errorf("重写队列失败: %w", err)
+		}
+		dropped = len(dead)
+		return nil
+	})
+	if err != nil {
+		return dropped, err
+	}
+	if dropped > 0 {
+		_ = updatePendingCount()
+	}
+	return dropped, nil
+}
+
+// DeadLetterPath 返回死信队列文件路径（与 queue.jsonl 同目录）。
+func DeadLetterPath() (string, error) {
+	dir, err := TelemetryDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "dead_letter.jsonl"), nil
+}
+
+// readQueueLines 读取队列文件全部有效行（不含空行），文件不存在返回 nil。
+// 须在持队列锁时调用。
+func readQueueLines() ([][]byte, error) {
+	path, err := QueuePath()
+	if err != nil {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("读取队列文件失败: %w", err)
+	}
+	var lines [][]byte
+	sc := bufio.NewScanner(bytes.NewReader(data))
+	// 与 ReadPending/rewriteQueue 相同的长行缓冲（16 MiB）。
+	sc.Buffer(make([]byte, 0, 64*1024), 16*1024*1024)
+	for sc.Scan() {
+		line := sc.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		b := make([]byte, len(line))
+		copy(b, line)
+		lines = append(lines, b)
+	}
+	if err := sc.Err(); err != nil {
+		return nil, fmt.Errorf("扫描队列文件失败: %w", err)
+	}
+	return lines, nil
+}
+
+// appendLines 以 0600 权限追加行到 path（目录不存在则创建）。
+func appendLines(path string, lines [][]byte) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("创建死信目录失败: %w", err)
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("打开死信文件失败: %w", err)
+	}
+	defer f.Close()
+	for _, line := range lines {
+		if _, err := f.Write(append(line, '\n')); err != nil {
+			return fmt.Errorf("写入死信文件失败: %w", err)
+		}
+	}
+	return nil
+}
+
+// replaceQueueLines 用 lines 原子替换队列文件内容（临时文件 + rename）。
+// 须在持队列锁时调用。
+func replaceQueueLines(lines [][]byte) error {
+	path, err := QueuePath()
+	if err != nil {
+		return err
+	}
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".queue-*.jsonl")
+	if err != nil {
+		return fmt.Errorf("创建临时队列文件失败: %w", err)
+	}
+	tmpPath := tmp.Name()
+	cleanup := true
+	defer func() {
+		_ = tmp.Close()
+		if cleanup {
+			_ = os.Remove(tmpPath)
+		}
+	}()
+	for _, line := range lines {
+		if _, err := tmp.Write(line); err != nil {
+			return fmt.Errorf("写入临时队列文件失败: %w", err)
+		}
+		if _, err := tmp.Write([]byte{'\n'}); err != nil {
+			return fmt.Errorf("写入临时队列文件失败: %w", err)
+		}
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("关闭临时队列文件失败: %w", err)
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		return fmt.Errorf("原子替换队列文件失败: %w", err)
+	}
+	cleanup = false
+	return nil
+}
+
 // rewriteQueue 逐行处理队列文件，通过临时文件+rename实现原子写入，
 // 避免将整个文件读入内存。只有被 mutate 修改的行才会重新marshal。
 // 全程持队列旁路锁（与 AppendQueue 互斥），且 rename 前已关闭原文件

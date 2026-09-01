@@ -54,6 +54,68 @@ func TestSetDoesNotAccumulateAcrossExecutes(t *testing.T) {
 	}
 }
 
+// --- R5-M1c: 提前失败的调用路径也不得残留 --yes ---
+// 回归：清零曾发生在 findSystem/参数校验之后，未知系统（exit 2）等
+// 提前失败路径不触发清零，--yes 残留到下一次 Execute 可绕过确认门禁。
+func TestYesDoesNotLeakWhenCallFailsEarly(t *testing.T) {
+	cmd, buf := newTestAPICmd(t)
+	// 第 1 次：--yes 打在未知系统上 → RunE 提前失败（exit 2），清零路径曾不会执行
+	cmd.SetArgs([]string{"api", "call", "nope", "deletePet", "--yes"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("unknown system should fail")
+	}
+	if code := ExitCode(err); code != 2 {
+		t.Fatalf("exit code = %d, want 2", code)
+	}
+	buf.Reset()
+	// 第 2 次：不带 --yes 的 dangerous 操作——残留的 --yes 不得让它免确认
+	cmd.SetArgs([]string{"api", "call", "demo", "deletePet", "--set", "path.id=p-1"})
+	err = cmd.Execute()
+	if err == nil {
+		t.Fatal("exec2 without --yes should fail closed (--yes leaked from failed exec1?)")
+	}
+	if code := ExitCode(err); code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(buf.String(), "非交互环境且未提供 --yes") {
+		t.Fatalf("output = %s", buf.String())
+	}
+}
+
+// --- R5-M1d: 调用类 flag 按命令实例隔离，跨命令类型不得互相污染 ---
+// 回归：L1/L2/L3 曾共享同一组包级变量，L2 上解析的 --yes 会污染后续 L3 调用。
+func TestCallFlagsIsolatedAcrossCommandKinds(t *testing.T) {
+	cmd, buf := newTestAPICmd(t)
+	// 第 1 次：L2 动态叶子（delete-pet，dangerous）显式 --yes
+	cmd.SetArgs([]string{"api", "demo", "pets", "delete-pet", "--set", "path.id=p-1", "--yes"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("exec1 should pass with --yes: %v (out=%s)", err, buf.String())
+	}
+	buf.Reset()
+	// 第 2 次：L3 通用调用同型操作（不带 --yes）——L2 的 --yes 不得污染 L3
+	cmd.SetArgs([]string{"api", "call", "demo", "deletePet", "--set", "path.id=p-2"})
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("exec2 without --yes should fail closed (L2 --yes leaked into L3?)")
+	}
+	if code := ExitCode(err); code != 1 {
+		t.Fatalf("exit code = %d, want 1", code)
+	}
+	if !strings.Contains(buf.String(), "非交互环境且未提供 --yes") {
+		t.Fatalf("output = %s", buf.String())
+	}
+	buf.Reset()
+	// 第 3 次：L1 shortcut（+seed，write 型 handler）不带 --yes，同样 fail-closed
+	cmd.SetArgs([]string{"api", "demo", "+seed"})
+	if err := cmd.Execute(); err == nil {
+		t.Fatal("exec3 shortcut without --yes should fail closed")
+	}
+	if !strings.Contains(buf.String(), "非交互环境且未提供 --yes") {
+		t.Fatalf("output = %s", buf.String())
+	}
+}
+
 // --- R5-M3: clone 树动态命令 flag 错误也要有输出且 exit 2 ---
 
 func TestAPICloneDynamicFlagErrorPrintsOnce(t *testing.T) {
